@@ -9,7 +9,14 @@ import { v1Routes } from "./routes/v1/index.js";
 
 async function main() {
   const env = getEnv();
-  const app = Fastify({ logger: true });
+  const app = Fastify({
+    logger: {
+      level: process.env.LOG_LEVEL ?? "info",
+      // Omit OS machine name from each line (defaults to Windows hostname).
+      base: { service: "signal-api" },
+    },
+  });
+
 
   app.setErrorHandler(errorHandler);
   await app.register(cors, {

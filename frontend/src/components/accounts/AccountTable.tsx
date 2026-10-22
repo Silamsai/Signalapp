@@ -3,40 +3,49 @@
 import Link from "next/link";
 import type { Account } from "../../lib/api/accounts";
 import { StatusBadge } from "../common/StatusBadge";
+import { TableWrap } from "../ui/TableWrap";
 
 export function AccountTable({ accounts }: { accounts: Account[] }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+    <TableWrap>
       <table className="min-w-full text-left text-sm">
-        <thead className="border-b border-slate-200 bg-slate-50 text-slate-600">
+        <thead className="border-b border-[var(--line)] bg-[var(--table-head)] text-[12px] font-medium text-[var(--muted)]">
           <tr>
-            <th className="px-4 py-3 font-medium">Account</th>
-            <th className="px-4 py-3 font-medium">Domain</th>
-            <th className="px-4 py-3 font-medium">Research</th>
-            <th className="px-4 py-3 font-medium">Acceptance</th>
-            <th className="px-4 py-3 font-medium">Fit</th>
+            <th className="px-4 py-3">Account</th>
+            <th className="px-4 py-3">Domain</th>
+            <th className="px-4 py-3">Research</th>
+            <th className="px-4 py-3">Acceptance</th>
+            <th className="px-4 py-3">Fit</th>
           </tr>
         </thead>
         <tbody>
           {accounts.map((a) => (
-            <tr key={a.id} className="border-b border-slate-100 last:border-0">
+            <tr key={a.id} className="border-b border-[var(--line)] last:border-0">
               <td className="px-4 py-3">
-                <Link href={`/accounts/${a.id}`} className="font-medium text-teal-800 hover:underline">
-                  {a.name}
-                </Link>
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-[6px] bg-[var(--navy)] text-xs font-bold text-white">
+                    {a.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <Link
+                    href={`/accounts/${a.id}`}
+                    className="font-semibold text-[var(--foreground)] hover:text-[var(--red-active)]"
+                  >
+                    {a.name}
+                  </Link>
+                </div>
               </td>
-              <td className="px-4 py-3 text-slate-600">{a.domain ?? "—"}</td>
+              <td className="px-4 py-3 text-[var(--muted)]">{a.domain ?? "—"}</td>
               <td className="px-4 py-3">
                 <StatusBadge status={a.researchState} />
               </td>
               <td className="px-4 py-3">
                 <StatusBadge status={a.acceptanceState} />
               </td>
-              <td className="px-4 py-3 text-slate-700">{a.fitScore ?? "—"}</td>
+              <td className="px-4 py-3 font-medium">{a.fitScore ?? "—"}</td>
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }

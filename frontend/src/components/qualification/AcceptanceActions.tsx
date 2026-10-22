@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { api } from "../../lib/api/client";
+import { Button } from "../ui/Button";
+import { Card } from "../ui/Card";
 
 export function AcceptanceActions({
   accountId,
@@ -35,21 +37,18 @@ export function AcceptanceActions({
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-      <h3 className="text-sm font-semibold">Sales acceptance</h3>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          className="rounded border border-slate-300 px-3 py-1.5 text-sm"
-          onClick={() => transition("ready_for_review")}
-        >
+    <Card>
+      <h3 className="text-[15px]">Sales acceptance</h3>
+      <p className="mt-1 text-xs text-[var(--muted)]">
+        Review decision is independent of pipeline stage.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button disabled={busy} variant="secondary" onClick={() => transition("ready_for_review")}>
           Submit for review
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           disabled={busy}
-          className="rounded bg-emerald-700 px-3 py-1.5 text-sm text-white"
+          variant="primary"
           onClick={() =>
             transition("accepted", {
               ownerUserId,
@@ -58,11 +57,10 @@ export function AcceptanceActions({
           }
         >
           Accept
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           disabled={busy}
-          className="rounded border border-orange-300 px-3 py-1.5 text-sm text-orange-900"
+          variant="secondary"
           onClick={() =>
             transition("needs_research", {
               reasonCategory: reason || "incomplete_evidence",
@@ -70,11 +68,10 @@ export function AcceptanceActions({
           }
         >
           Return
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           disabled={busy}
-          className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-800"
+          variant="ghost"
           onClick={() =>
             transition("rejected", {
               reasonCategory: reason || "not_a_fit",
@@ -82,15 +79,15 @@ export function AcceptanceActions({
           }
         >
           Reject
-        </button>
+        </Button>
       </div>
       <input
-        className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+        className="mt-3 w-full rounded-[7px] border border-[var(--input-border)] px-2 py-2 text-sm"
         placeholder="Reason category (return/reject)"
         value={reason}
         onChange={(e) => setReason(e.target.value)}
       />
-      {error ? <p className="text-sm text-red-700">{error}</p> : null}
-    </div>
+      {error ? <p className="mt-2 text-sm text-[var(--red-active)]">{error}</p> : null}
+    </Card>
   );
 }

@@ -1,26 +1,26 @@
-const tones: Record<string, string> = {
-  draft: "bg-slate-100 text-slate-700",
-  ready_for_review: "bg-amber-100 text-amber-900",
-  accepted: "bg-emerald-100 text-emerald-900",
-  needs_research: "bg-orange-100 text-orange-900",
-  rejected: "bg-red-100 text-red-800",
-  unresearched: "bg-slate-100 text-slate-700",
-  researching: "bg-sky-100 text-sky-900",
-  researched: "bg-teal-100 text-teal-900",
-  failed: "bg-red-100 text-red-800",
-  open: "bg-sky-100 text-sky-900",
-  in_progress: "bg-amber-100 text-amber-900",
-  completed: "bg-emerald-100 text-emerald-900",
-  cancelled: "bg-slate-200 text-slate-700",
-  queued: "bg-slate-100 text-slate-700",
-  running: "bg-sky-100 text-sky-900",
-};
+import { Badge } from "../ui/Badge";
+
+const map: Record<string, { tone: "default" | "green" | "amber" | "blue" | "red"; label?: string }> =
+  {
+    draft: { tone: "default" },
+    ready_for_review: { tone: "amber", label: "Ready for review" },
+    accepted: { tone: "green", label: "Accepted" },
+    needs_research: { tone: "amber", label: "Needs research" },
+    rejected: { tone: "red", label: "Rejected" },
+    unresearched: { tone: "default", label: "New" },
+    researching: { tone: "blue", label: "Researching" },
+    researched: { tone: "green", label: "Supported" },
+    failed: { tone: "red", label: "Failed" },
+    open: { tone: "blue" },
+    in_progress: { tone: "amber", label: "In progress" },
+    completed: { tone: "green" },
+    cancelled: { tone: "default" },
+    queued: { tone: "default" },
+    running: { tone: "blue" },
+  };
 
 export function StatusBadge({ status }: { status: string }) {
-  const cls = tones[status] ?? "bg-slate-100 text-slate-700";
-  return (
-    <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium capitalize ${cls}`}>
-      {status.replaceAll("_", " ")}
-    </span>
-  );
+  const meta = map[status] ?? { tone: "default" as const };
+  const label = meta.label ?? status.replaceAll("_", " ");
+  return <Badge tone={meta.tone}>{label}</Badge>;
 }
