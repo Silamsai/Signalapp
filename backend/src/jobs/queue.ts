@@ -3,8 +3,6 @@ import { getDirectDatabaseUrl } from "../config/env.js";
 
 export const JOB_RESEARCH = "research-run";
 export const JOB_IMPORT = "csv-import";
-export const JOB_MONITOR = "monitor-run";
-export const JOB_CAMPAIGN_DISPATCH = "campaign-dispatch";
 
 let boss: PgBoss | null = null;
 
@@ -31,29 +29,16 @@ export async function enqueueResearchRun(researchRunId: string) {
   });
 }
 
-export async function enqueueCsvImport(importJobId: string, csvText: string) {
+export async function enqueueCsvImport(
+  importJobId: string,
+  csvText: string,
+  mapping?: Record<string, string>,
+) {
   const b = await getBoss();
   await b.createQueue(JOB_IMPORT);
-  await b.send(JOB_IMPORT, { importJobId, csvText }, {
+  await b.send(JOB_IMPORT, { importJobId, csvText, mapping }, {
     retryLimit: 2,
     expireInMinutes: 60,
   });
 }
 
-export async function enqueueMonitorRun(monitorId: string) {
-  const b = await getBoss();
-  await b.createQueue(JOB_MONITOR);
-  await b.send(JOB_MONITOR, { monitorId }, {
-    retryLimit: 2,
-    expireInMinutes: 30,
-  });
-}
-
-export async function enqueueCampaignDispatch() {
-  const b = await getBoss();
-  await b.createQueue(JOB_CAMPAIGN_DISPATCH);
-  await b.send(JOB_CAMPAIGN_DISPATCH, { tick: Date.now() }, {
-    retryLimit: 1,
-    expireInMinutes: 10,
-  });
-}

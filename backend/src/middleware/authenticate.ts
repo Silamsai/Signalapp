@@ -1,6 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { resolveSession, SESSION_COOKIE, type Actor } from "../auth/session.js";
-import { unauthorized } from "../utils/errors.js";
+import { AppError, unauthorized } from "../utils/errors.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -17,5 +17,9 @@ export async function authenticateRequired(req: FastifyRequest, _reply: FastifyR
   await authenticateOptional(req);
   if (!req.actor) {
     throw unauthorized();
+  }
+  // A temporary password only allows choosing a new one
+  if (req.actor.mustChangePassword && !req.url.startsWith("/v1/auth/")) {
+    throw new AppError(403, "Set a new password to continue", "password_change_required");
   }
 }

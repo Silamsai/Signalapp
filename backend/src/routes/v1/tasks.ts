@@ -2,11 +2,13 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authenticateRequired } from "../../middleware/authenticate.js";
 import {
-  assertAccountInWorkspace,
+  assertAccountReadable,
   loadMembership,
   requireCap,
 } from "../../middleware/requireMembership.js";
-import { createTask, listTasks, updateTask } from "../../services/tasks.js";
+import { createTask, getTask, listTasks, taskPriorities, updateTask } from "../../services/tasks.js";
+import { taskStatuses, taskTypes } from "../../db/schema/workflow.js";
+import { forbidden } from "../../utils/errors.js";
 
 export async function taskRoutes(app: FastifyInstance) {
   app.get(
@@ -14,14 +16,20 @@ export async function taskRoutes(app: FastifyInstance) {
     { preHandler: authenticateRequired },
     async (req) => {
       const { workspaceId } = req.params as { workspaceId: string };
-      await loadMembership(req, workspaceId);
+      const m = await loadMembership(req, workspaceId);
+      requireCap(m, "view_tasks");
       const q = z
         .object({
           ownerUserId: z.string().optional(),
-          status: z.string().optional(),
+          status: z.enum(taskStatuses).optional(),
+          priority: z.enum(taskPriorities).optional(),
+          accountId: z.string().optional(),
+          due: z.enum(["overdue", "today", "week"]).optional(),
         })
         .parse(req.query);
-      const tasks = await listTasks(workspaceId, q);
+      // SDRs work their own queue only
+      const ownerUserId = m.role === "sdr" ? m.userId : q.ownerUserId;
+      const tasks = await listTasks(m.tenantId, workspaceId, { ...q, ownerUserId });
       return { tasks };
     },
   );
@@ -31,20 +39,20 @@ export async function taskRoutes(app: FastifyInstance) {
       .object({
         workspaceId: z.string(),
         accountId: z.string(),
-        type: z.enum(["research", "call", "email", "follow_up"]),
+        type: z.enum(taskTypes),
         ownerUserId: z.string(),
-        dueAt: z.string().optional(),
+        dueAt: z.string().datetime({ offset: true }).optional(),
         timezone: z.string().optional(),
-        instruction: z.string().optional(),
-        priority: z.string().optional(),
-        idempotencyKey: z.string().optional(),
+        instruction: z.string().max(2000).optional(),
+        priority: z.enum(taskPriorities).optional(),
+        idempotencyKey: z.string().max(200).optional(),
         confirmFollowUp: z.boolean().optional(),
       })
       .parse(req.body);
 
     const m = await loadMembership(req, body.workspaceId);
     requireCap(m, "tasks");
-    await assertAccountInWorkspace(body.accountId, m.workspaceId, m.tenantId);
+    await assertAccountReadable(m, body.accountId);
 
     const task = await createTask({
       tenantId: m.tenantId,
@@ -68,14 +76,21 @@ export async function taskRoutes(app: FastifyInstance) {
     const body = z
       .object({
         workspaceId: z.string(),
-        status: z.enum(["open", "in_progress", "completed", "cancelled"]).optional(),
-        outcome: z.string().optional(),
-        cancelReason: z.string().optional(),
+        status: z.enum(taskStatuses).optional(),
+        outcome: z.string().max(2000).optional(),
+        cancelReason: z.string().max(2000).optional(),
+        ownerUserId: z.string().optional(),
+        dueAt: z.string().datetime({ offset: true }).nullable().optional(),
+        priority: z.enum(taskPriorities).optional(),
       })
       .parse(req.body);
 
     const m = await loadMembership(req, body.workspaceId);
     requireCap(m, "tasks");
+    const existing = await getTask(m.tenantId, m.workspaceId, taskId);
+    if (m.role === "sdr" && existing.ownerUserId !== m.userId) {
+      throw forbidden("SDRs can only update their own tasks");
+    }
     const task = await updateTask({
       tenantId: m.tenantId,
       workspaceId: m.workspaceId,
@@ -83,6 +98,9 @@ export async function taskRoutes(app: FastifyInstance) {
       status: body.status,
       outcome: body.outcome,
       cancelReason: body.cancelReason,
+      ownerUserId: body.ownerUserId,
+      dueAt: body.dueAt,
+      priority: body.priority,
       actorUserId: req.actor!.userId,
     });
     return { task };

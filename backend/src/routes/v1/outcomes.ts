@@ -14,11 +14,11 @@ export async function outcomeRoutes(app: FastifyInstance) {
       requireCap(m, "view_outcomes");
       const q = z
         .object({
-          from: z.string().optional(),
-          to: z.string().optional(),
+          from: z.string().datetime({ offset: true }).optional(),
+          to: z.string().datetime({ offset: true }).optional(),
         })
         .parse(req.query);
-      return computeOutcomes(workspaceId, q.from, q.to);
+      return computeOutcomes(m.tenantId, workspaceId, q.from, q.to);
     },
   );
 }

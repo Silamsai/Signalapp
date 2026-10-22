@@ -99,8 +99,8 @@ export default function LoginPage() {
           setInfo(null);
           try {
             if (mode === "login") {
-              await login(email, password);
-              router.push("/discover");
+              const { user } = await login(email, password);
+              router.push(user.mustChangePassword ? "/account/password" : "/discover");
               return;
             }
             if (mode === "register") {

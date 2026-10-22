@@ -2,20 +2,28 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authenticateRequired } from "../../middleware/authenticate.js";
 import {
-  assertAccountInWorkspace,
+  assertAccountReadable,
   loadMembership,
   requireCap,
 } from "../../middleware/requireMembership.js";
+import { hasCapability } from "../../auth/permissions.js";
 import {
+  HANDOFF_FIELDS,
   createHandoff,
   getPartnerHandoffView,
   listHandoffsForAccount,
+  listHandoffsSharedWith,
   revokeHandoffAccess,
   shareHandoff,
   transitionHandoff,
 } from "../../services/handoffs.js";
+import { forbidden } from "../../utils/errors.js";
 
 export async function handoffRoutes(app: FastifyInstance) {
+  app.get("/v1/handoffs/fields", { preHandler: authenticateRequired }, async () => ({
+    fields: HANDOFF_FIELDS,
+  }));
+
   app.post(
     "/v1/accounts/:accountId/handoffs",
     { preHandler: authenticateRequired },
@@ -24,17 +32,18 @@ export async function handoffRoutes(app: FastifyInstance) {
       const q = z.object({ workspaceId: z.string() }).parse(req.query);
       const m = await loadMembership(req, q.workspaceId);
       requireCap(m, "handoff");
-      await assertAccountInWorkspace(accountId, m.workspaceId, m.tenantId);
+      await assertAccountReadable(m, accountId);
 
       const body = z
         .object({
-          receivingOrg: z.string().min(1),
-          receivingUser: z.string().optional(),
+          receivingOrg: z.string().trim().min(1).max(200),
+          receivingUser: z.string().email(),
           internalOwnerUserId: z.string(),
-          permittedFields: z.array(z.string()).default([]),
-          reason: z.string().min(1),
-          nextAction: z.string().optional(),
-          dueAt: z.string().optional(),
+          permittedFields: z.array(z.string()).min(1),
+          reason: z.string().trim().min(1).max(2000),
+          nextAction: z.string().trim().min(1).max(500),
+          dueAt: z.string().datetime({ offset: true }),
+          acknowledgeConflict: z.boolean().optional(),
         })
         .parse(req.body);
 
@@ -96,6 +105,18 @@ export async function handoffRoutes(app: FastifyInstance) {
     },
   );
 
+  /** Partner inbox */
+  app.get(
+    "/v1/workspaces/:workspaceId/shared-handoffs",
+    { preHandler: authenticateRequired },
+    async (req) => {
+      const { workspaceId } = req.params as { workspaceId: string };
+      const m = await loadMembership(req, workspaceId);
+      requireCap(m, "acknowledge_handoff");
+      return { handoffs: await listHandoffsSharedWith(m.workspaceId, req.actor!.email) };
+    },
+  );
+
   app.get(
     "/v1/handoffs/:handoffId/partner-view",
     { preHandler: authenticateRequired },
@@ -103,11 +124,14 @@ export async function handoffRoutes(app: FastifyInstance) {
       const { handoffId } = req.params as { handoffId: string };
       const q = z.object({ workspaceId: z.string() }).parse(req.query);
       const m = await loadMembership(req, q.workspaceId);
+      if (m.role !== "partner" && !hasCapability(m.role, "handoff")) {
+        throw forbidden("Missing capability: handoff");
+      }
       return getPartnerHandoffView({
+        tenantId: m.tenantId,
         workspaceId: m.workspaceId,
         handoffId,
         actorEmail: req.actor!.email,
-        isWorkspaceMember: true,
         role: m.role,
       });
     },
@@ -120,22 +144,8 @@ export async function handoffRoutes(app: FastifyInstance) {
       const { accountId } = req.params as { accountId: string };
       const q = z.object({ workspaceId: z.string() }).parse(req.query);
       const m = await loadMembership(req, q.workspaceId);
-      await assertAccountInWorkspace(accountId, m.workspaceId, m.tenantId);
-      // Partners must not list full handoff rows for prepared records
-      const rows = await listHandoffsForAccount(m.workspaceId, accountId);
-      if (m.role === "partner") {
-        return {
-          handoffs: rows
-            .filter((h) => h.state !== "prepared")
-            .map((h) => ({
-              id: h.id,
-              state: h.state,
-              receivingOrg: h.receivingOrg,
-              sharedAt: h.sharedAt,
-            })),
-        };
-      }
-      return { handoffs: rows };
+      await assertAccountReadable(m, accountId);
+      return { handoffs: await listHandoffsForAccount(m.tenantId, m.workspaceId, accountId) };
     },
   );
 
@@ -148,11 +158,10 @@ export async function handoffRoutes(app: FastifyInstance) {
         .object({
           workspaceId: z.string(),
           toState: z.enum(["acknowledged", "returned", "closed"]),
-          returnReason: z.string().optional(),
+          returnReason: z.string().max(2000).optional(),
         })
         .parse(req.body);
       const m = await loadMembership(req, body.workspaceId);
-      requireCap(m, "acknowledge_handoff");
       const handoff = await transitionHandoff({
         tenantId: m.tenantId,
         workspaceId: m.workspaceId,
@@ -160,6 +169,9 @@ export async function handoffRoutes(app: FastifyInstance) {
         toState: body.toState,
         returnReason: body.returnReason,
         actorUserId: req.actor!.userId,
+        actorEmail: req.actor!.email,
+        role: m.role,
+        canManage: hasCapability(m.role, "share_handoff"),
       });
       return { handoff };
     },

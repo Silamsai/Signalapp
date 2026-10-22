@@ -15,7 +15,14 @@ export const researchRuns = pgTable(
     accountId: text("account_id").references(() => accounts.id),
     status: text("status").notNull().default("queued"),
     query: text("query").notNull(),
+    /** account | discovery */
+    mode: text("mode").notNull().default("account"),
+    /** Original natural-language brief as entered (R1) */
+    brief: text("brief"),
+    /** Executed structured filters */
     filtersJson: text("filters_json").notNull().default("{}"),
+    /** Outcome summary: candidate account IDs, no-results flag, counts */
+    resultJson: text("result_json"),
     playbookVersionId: text("playbook_version_id"),
     budgetReserved: integer("budget_reserved").notNull().default(1),
     budgetActual: integer("budget_actual"),
@@ -68,6 +75,8 @@ export const sources = pgTable(
     publisher: text("publisher"),
     title: text("title"),
     contentFingerprint: text("content_fingerprint"),
+    /** ISO-3166 alpha-2 derived from the source URL (normalized region match) */
+    country: text("country"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -100,6 +109,10 @@ export const evidence = pgTable(
     extractionVersion: text("extraction_version").notNull().default("1"),
     providerRequestRef: text("provider_request_ref"),
     stale: integer("stale").notNull().default(0),
+    eventFingerprint: text("event_fingerprint"),
+    /** Gate 5: acceptance requires reviewed evidence */
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewedBy: text("reviewed_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

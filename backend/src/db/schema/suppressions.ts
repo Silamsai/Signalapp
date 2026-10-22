@@ -16,6 +16,8 @@ export const suppressions = pgTable(
     reason: text("reason").notNull(),
     source: text("source").notNull().default("manual"),
     effectiveAt: timestamp("effective_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdBy: text("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("suppressions_workspace_idx").on(t.workspaceId)],

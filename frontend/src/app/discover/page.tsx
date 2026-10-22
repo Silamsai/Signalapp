@@ -3,77 +3,60 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { LoadingState } from "@/components/common/LoadingState";
+import { RequireCap } from "@/components/common/RequireCap";
 import { ErrorState } from "@/components/common/ErrorState";
+import { LoadingState } from "@/components/common/LoadingState";
 import { OpportunityFeed } from "@/components/accounts/OpportunityFeed";
 import { KpiTile } from "@/components/ui/KpiTile";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { useWorkspace } from "@/hooks/useWorkspace";
 import { listAccounts, type Account } from "@/lib/api/accounts";
 
-export default function DiscoverPage() {
-  const { workspaceId, loading, error } = useWorkspace();
-  const [accounts, setAccounts] = useState<Account[]>([]);
+function Feed({ workspaceId }: { workspaceId: string }) {
+  const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [minScore, setMinScore] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!workspaceId) return;
-    void listAccounts(workspaceId).then((r) => setAccounts(r.accounts));
+    listAccounts(workspaceId)
+      .then((r) => setAccounts(r.accounts))
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load"));
   }, [workspaceId]);
 
-  const researched = useMemo(
-    () => accounts.filter((a) => a.researchState === "researched"),
-    [accounts],
-  );
-  const ready = accounts.filter((a) => a.acceptanceState === "ready_for_review").length;
-  const gaps = accounts.filter((a) => a.researchState === "unresearched" || a.researchState === "failed")
-    .length;
-
   const feed = useMemo(() => {
-    let rows = researched.length ? researched : accounts;
-    if (minScore != null) {
-      rows = rows.filter((a) => (a.fitScore ?? 0) >= minScore);
-    }
+    let rows = (accounts ?? []).filter((a) => a.researchState === "researched");
+    if (minScore != null) rows = rows.filter((a) => (a.fitScore ?? 0) >= minScore);
     return [...rows].sort((a, b) => (b.fitScore ?? 0) - (a.fitScore ?? 0));
-  }, [accounts, researched, minScore]);
+  }, [accounts, minScore]);
 
-  if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} />;
+  if (!accounts) return <LoadingState />;
+
+  const unresearched = accounts.filter((a) => a.researchState === "unresearched" || a.researchState === "failed").length;
 
   return (
     <div>
       <PageHeader
-        eyebrow="Your opportunity workspace"
+        eyebrow="Opportunity feed"
         title="Reasons to start a conversation"
-        description="Infrastructure expansion and refresh signals from researched accounts."
+        description="Researched accounts ranked by fit, recency and evidence quality. Scores help you prioritise; they are not purchase probabilities."
         actions={
-          <Link href="/settings/offer">
-            <Button variant="primary">Configure targeting</Button>
+          <Link href="/discover/search">
+            <Button variant="primary">Find prospects</Button>
           </Link>
         }
       />
-
-      <Card className="mb-6 !py-4">
-        <p className="text-sm text-[var(--foreground)]">
-          Offer context lives in Settings. Buyers and territory drive discovery and scoring.
-        </p>
-      </Card>
-
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <KpiTile label="Accounts to review" value={feed.length} />
-        <KpiTile label="Ready for acceptance" value={ready} />
-        <KpiTile label="Evidence gaps" value={gaps} />
+        <KpiTile label="Researched accounts" value={feed.length} />
+        <KpiTile label="Ready for review" value={accounts.filter((a) => a.acceptanceState === "ready_for_review").length} />
+        <KpiTile label="Still to research" value={unresearched} />
       </div>
-
-      <div className="mb-5 flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-          Minimum score
-        </span>
-        {[null, 70, 80, 90].map((n) => (
+      <div className="mb-5 flex flex-wrap items-center gap-2" role="group" aria-label="Minimum priority">
+        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Minimum priority</span>
+        {[null, 50, 70, 85].map((n) => (
           <button
             key={String(n)}
             type="button"
+            aria-pressed={minScore === n}
             onClick={() => setMinScore(n)}
             className={`rounded-[7px] border px-3 py-1.5 text-sm font-medium ${
               minScore === n
@@ -85,8 +68,11 @@ export default function DiscoverPage() {
           </button>
         ))}
       </div>
-
       <OpportunityFeed accounts={feed} />
     </div>
   );
+}
+
+export default function DiscoverPage() {
+  return <RequireCap cap="discover">{(workspaceId) => <Feed workspaceId={workspaceId} />}</RequireCap>;
 }

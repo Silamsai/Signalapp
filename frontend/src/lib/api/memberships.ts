@@ -35,3 +35,10 @@ export function revokeMembership(workspaceId: string, membershipId: string) {
     { method: "POST", body: JSON.stringify({}) },
   );
 }
+
+export function resetMemberPassword(workspaceId: string, membershipId: string) {
+  return api<{ temporaryPassword: string }>(
+    `/v1/workspaces/${workspaceId}/memberships/${membershipId}/reset-password`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+}

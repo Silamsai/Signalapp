@@ -1,142 +1,166 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { RequireCap } from "@/components/common/RequireCap";
 import { EvidenceList } from "@/components/research/EvidenceList";
 import { ScoreBreakdown } from "@/components/research/ScoreBreakdown";
 import { AcceptanceActions } from "@/components/qualification/AcceptanceActions";
 import { ResearchRunStatus } from "@/components/research/ResearchRunStatus";
+import { HandoffPanel } from "@/components/handoffs/HandoffPanel";
+import { TaskForm } from "@/components/tasks/TaskForm";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { getBrief } from "@/lib/api/accounts";
+import { getBrief, type Brief } from "@/lib/api/accounts";
 import { startResearchRun } from "@/lib/api/research";
-import { me } from "@/lib/auth/session";
+import { createDraft } from "@/lib/api/drafts";
 import { LoadingState } from "@/components/common/LoadingState";
 import { ErrorState } from "@/components/common/ErrorState";
-import { api } from "@/lib/api/client";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { HandoffPanel } from "@/components/handoffs/HandoffPanel";
 
-export default function AccountBriefPage() {
-  const params = useParams();
-  const accountId = String(params.accountId);
-  const { workspaceId, loading, error } = useWorkspace();
-  const [brief, setBrief] = useState<Record<string, unknown> | null>(null);
-  const [userId, setUserId] = useState("");
+function AccountBrief({ workspaceId, accountId }: { workspaceId: string; accountId: string }) {
+  const { can } = useWorkspace();
+  const router = useRouter();
+  const [brief, setBrief] = useState<Brief | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [showTaskForm, setShowTaskForm] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!workspaceId) return;
-    const data = await getBrief(accountId, workspaceId);
-    setBrief(data);
+    try {
+      setBrief(await getBrief(accountId, workspaceId));
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Could not load account");
+    }
   }, [accountId, workspaceId]);
 
   useEffect(() => {
-    void me()
-      .then((r) => setUserId(r.user.id))
-      .catch(() => undefined);
     void refresh();
   }, [refresh]);
 
-  if (loading) return <LoadingState />;
-  if (error) return <ErrorState message={error} />;
+  if (loadError) return <ErrorState message={loadError} />;
   if (!brief) return <LoadingState label="Loading brief…" />;
 
-  const account = brief.account as {
-    version?: number;
-    name: string;
-    domain: string | null;
-    researchState: string;
-    acceptanceState: string;
-    fitScore: number | null;
-  };
+  const { account } = brief;
+  const reviewed = brief.evidence.filter((e) => e.reviewedAt).length;
 
   return (
-    <div className="mx-auto max-w-[790px] space-y-5">
+    <div className="mx-auto max-w-[860px] space-y-5">
       <PageHeader
-        eyebrow="Account intelligence"
+        eyebrow="Account brief"
         title={account.name}
-        description={account.domain ?? "No domain"}
+        description={[account.domain, account.country, account.legalName].filter(Boolean).join(" · ") || "No domain"}
         actions={
           <>
-            <Link href={`/accounts/${accountId}/evidence`}>
-              <Button variant="secondary">Evidence</Button>
-            </Link>
             <Link href={`/accounts/${accountId}/qualification`}>
-              <Button variant="secondary">Qualification</Button>
+              <Button>Qualification</Button>
             </Link>
-            <Button
-              variant="primary"
-              onClick={async () => {
-                if (!workspaceId) return;
-                setLocalError(null);
-                try {
-                  const { researchRunId } = await startResearchRun(workspaceId, {
-                    query: `${account.name} infrastructure OR datacenter OR server refresh`,
-                    accountId,
-                    budget: 3,
-                  });
-                  setRunId(researchRunId);
-                } catch (e) {
-                  setLocalError(e instanceof Error ? e.message : "Research failed");
-                }
-              }}
-            >
-              Run research
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={async () => {
-                if (!workspaceId) return;
-                await api(`/v1/accounts/${accountId}/drafts?workspaceId=${workspaceId}`, {
-                  method: "POST",
-                  body: JSON.stringify({}),
-                });
-                window.location.href = "/outreach/drafts";
-              }}
-            >
-              Prepare outreach →
-            </Button>
+            {can("research") ? (
+              <Button
+                variant="primary"
+                disabled={account.researchState === "researching"}
+                onClick={async () => {
+                  setLocalError(null);
+                  try {
+                    const { researchRunId } = await startResearchRun(workspaceId, {
+                      mode: "account",
+                      query: "infrastructure expansion, hiring, refresh or procurement",
+                      accountId,
+                      budget: 3,
+                    });
+                    setRunId(researchRunId);
+                  } catch (e) {
+                    setLocalError(e instanceof Error ? e.message : "Research failed");
+                  }
+                }}
+              >
+                {account.researchState === "unresearched" ? "Run research" : "Re-research"}
+              </Button>
+            ) : null}
+            {can("drafts") ? (
+              <Button
+                onClick={async () => {
+                  setLocalError(null);
+                  try {
+                    await createDraft(accountId, workspaceId);
+                    router.push("/outreach/drafts");
+                  } catch (e) {
+                    setLocalError(e instanceof Error ? e.message : "Could not create draft");
+                  }
+                }}
+              >
+                Draft outreach
+              </Button>
+            ) : null}
           </>
         }
       />
 
       <Card className="!py-4">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           <StatusBadge status={account.researchState} />
           <StatusBadge status={account.acceptanceState} />
-          <span className="text-sm text-[var(--muted)]">
-            Priority {account.fitScore ?? "—"} / 100
-          </span>
+          <span className="text-[var(--muted)]">Priority {account.fitScore ?? "—"} / 100</span>
+          <span className="text-[var(--muted)]">· Owner {brief.owner?.name ?? "unassigned"}</span>
+          <span className="text-[var(--muted)]">· Added via {account.source}</span>
         </div>
       </Card>
 
       {localError ? <ErrorState message={localError} /> : null}
-      <ResearchRunStatus runId={runId} workspaceId={workspaceId} />
-      <ScoreBreakdown signals={(brief.signals as never[]) ?? []} />
-      <div>
-        <h2 className="mb-3 text-[16px]">Trigger evidence</h2>
-        <EvidenceList
-          items={((brief.evidence as never[]) ?? []).slice(0, 5)}
-          signals={(brief.signals as never[]) ?? []}
-        />
-      </div>
-      {workspaceId && userId ? (
-        <AcceptanceActions
-          accountId={accountId}
-          workspaceId={workspaceId}
-          ownerUserId={userId}
-          expectedVersion={typeof account.version === "number" ? account.version : undefined}
-          onDone={refresh}
-        />
+      <ResearchRunStatus runId={runId} workspaceId={workspaceId} onFinished={() => void refresh()} />
+      <ScoreBreakdown signals={brief.signals} />
+
+      <section aria-labelledby="evidence-heading">
+        <h2 id="evidence-heading" className="mb-1 text-[16px]">
+          Cited evidence
+        </h2>
+        <p className="mb-3 text-xs text-[var(--muted)]">
+          Sources are untrusted web data. Review each item before relying on it; only reviewed evidence counts for
+          acceptance and drafts. Stale = outside the {brief.eventWindowDays}-day event window or not re-checked
+          recently.
+        </p>
+        <EvidenceList items={brief.evidence} workspaceId={workspaceId} canReview={can("review_evidence")} onChanged={refresh} />
+      </section>
+
+      <AcceptanceActions
+        accountId={accountId}
+        workspaceId={workspaceId}
+        state={account.acceptanceState}
+        version={account.version}
+        currentOwnerId={account.ownerUserId}
+        reviewedEvidenceCount={reviewed}
+        decisions={brief.decisions}
+        onDone={refresh}
+      />
+
+      {can("tasks") ? (
+        <div>
+          <Button onClick={() => setShowTaskForm((s) => !s)}>{showTaskForm ? "Hide task form" : "Add a task for this account"}</Button>
+          {showTaskForm ? (
+            <div className="mt-3">
+              <TaskForm workspaceId={workspaceId} accountId={accountId} onCreated={() => setShowTaskForm(false)} />
+            </div>
+          ) : null}
+        </div>
       ) : null}
-      {workspaceId && userId ? (
-        <HandoffPanel accountId={accountId} workspaceId={workspaceId} ownerUserId={userId} />
+
+      {can("handoff") ? (
+        <HandoffPanel accountId={accountId} workspaceId={workspaceId} acceptanceState={account.acceptanceState} />
       ) : null}
     </div>
+  );
+}
+
+export default function AccountBriefPage() {
+  const params = useParams();
+  const accountId = String(params.accountId);
+  return (
+    <RequireCap cap="view_accounts">
+      {(workspaceId) => <AccountBrief workspaceId={workspaceId} accountId={accountId} />}
+    </RequireCap>
   );
 }

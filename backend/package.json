@@ -9,12 +9,12 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "start:worker": "node dist/worker.js",
-    "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "db:studio": "drizzle-kit studio",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:gates": "vitest run src/test/gates.test.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

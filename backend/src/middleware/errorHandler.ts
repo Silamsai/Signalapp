@@ -1,6 +1,7 @@
 import type { FastifyError, FastifyReply, FastifyRequest } from "fastify";
+import { ZodError } from "zod";
 import { AppError } from "../utils/errors.js";
-import { redactSecrets, redactString } from "../utils/secrets.js";
+import { redactSecrets, redactString } from "../utils/redact.js";
 
 export function errorHandler(error: FastifyError | Error, _req: FastifyRequest, reply: FastifyReply) {
   if (error instanceof AppError) {
@@ -13,6 +14,19 @@ export function errorHandler(error: FastifyError | Error, _req: FastifyRequest, 
         code: error.code,
         message: redactString(error.message),
         details,
+      },
+    });
+  }
+
+  // Request validation is a 400, never a 500 (spec §8: distinct error classes)
+  if (error instanceof ZodError) {
+    return reply.status(400).send({
+      error: {
+        code: "validation_error",
+        message: error.issues
+          .map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message))
+          .join("; "),
+        details: { issues: error.issues.map((i) => ({ path: i.path, message: i.message })) },
       },
     });
   }

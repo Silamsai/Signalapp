@@ -1,9 +1,30 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, isNotNull, lt, notInArray, type SQL } from "drizzle-orm";
 import { getDb } from "../db/client.js";
 import { activities, tasks, type TaskStatus, type TaskType } from "../db/schema/index.js";
-import { validationError } from "../utils/errors.js";
+import { conflict, notFound, validationError } from "../utils/errors.js";
 import { newId } from "../utils/ids.js";
 import { isAccountSuppressed } from "./suppressions.js";
+import { isActiveMember } from "../middleware/requireMembership.js";
+import { writeAudit } from "./audit.js";
+
+export const taskPriorities = ["low", "normal", "high", "urgent"] as const;
+export type TaskPriority = (typeof taskPriorities)[number];
+
+/** Allowed status transitions (R6). Completed and Cancelled are terminal. */
+const transitions: Record<TaskStatus, TaskStatus[]> = {
+  open: ["in_progress", "completed", "cancelled"],
+  in_progress: ["open", "completed", "cancelled"],
+  completed: [],
+  cancelled: [],
+};
+
+function assertValidTimezone(tz: string) {
+  try {
+    new Intl.DateTimeFormat("en-GB", { timeZone: tz });
+  } catch {
+    throw validationError(`Unknown timezone: ${tz}`);
+  }
+}
 
 export async function createTask(input: {
   tenantId: string;
@@ -14,7 +35,7 @@ export async function createTask(input: {
   dueAt?: string | null;
   timezone?: string;
   instruction?: string;
-  priority?: string;
+  priority?: TaskPriority;
   idempotencyKey?: string;
   createdBy: string;
   confirmFollowUp?: boolean;
@@ -22,10 +43,15 @@ export async function createTask(input: {
   if (input.type === "follow_up" && !input.confirmFollowUp) {
     throw validationError("Proposed follow-up task requires confirmation");
   }
-
-  if (await isAccountSuppressed(input.workspaceId, input.accountId)) {
-    throw validationError("Cannot create task for suppressed account");
+  if (!(await isActiveMember(input.workspaceId, input.ownerUserId))) {
+    throw validationError("Task owner must be an active workspace member");
   }
+  // Research tasks may be created before acceptance; contact tasks honor suppression (gate 8)
+  if (input.type !== "research" && (await isAccountSuppressed(input.workspaceId, input.accountId))) {
+    throw validationError("Cannot create a contact task for a suppressed account");
+  }
+  const timezone = input.timezone ?? "UTC";
+  assertValidTimezone(timezone);
 
   const db = getDb();
   if (input.idempotencyKey) {
@@ -50,14 +76,36 @@ export async function createTask(input: {
     type: input.type,
     ownerUserId: input.ownerUserId,
     dueAt: input.dueAt ? new Date(input.dueAt) : null,
-    timezone: input.timezone ?? "UTC",
+    timezone,
     instruction: input.instruction,
     priority: input.priority ?? "normal",
     idempotencyKey: input.idempotencyKey,
     createdBy: input.createdBy,
   });
+  await writeAudit({
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    actorUserId: input.createdBy,
+    action: "task.created",
+    entityType: "task",
+    entityId: id,
+    metadata: { type: input.type, ownerUserId: input.ownerUserId },
+  });
   const [row] = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
   return row!;
+}
+
+export async function getTask(tenantId: string, workspaceId: string, taskId: string) {
+  const db = getDb();
+  const [task] = await db
+    .select()
+    .from(tasks)
+    .where(
+      and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspaceId), eq(tasks.tenantId, tenantId)),
+    )
+    .limit(1);
+  if (!task) throw notFound("Task not found");
+  return task;
 }
 
 export async function updateTask(input: {
@@ -67,32 +115,46 @@ export async function updateTask(input: {
   status?: TaskStatus;
   outcome?: string;
   cancelReason?: string;
+  ownerUserId?: string;
+  dueAt?: string | null;
+  priority?: TaskPriority;
   actorUserId: string;
 }) {
   const db = getDb();
-  const [task] = await db
-    .select()
-    .from(tasks)
-    .where(and(eq(tasks.id, input.taskId), eq(tasks.workspaceId, input.workspaceId)))
-    .limit(1);
-  if (!task) throw validationError("Task not found");
+  const task = await getTask(input.tenantId, input.workspaceId, input.taskId);
 
-  if (input.status === "completed" && !input.outcome) {
-    throw validationError("Completion requires an outcome");
+  if (input.status && input.status !== task.status) {
+    if (!transitions[task.status].includes(input.status)) {
+      throw conflict(`Invalid task transition ${task.status} → ${input.status}`);
+    }
+    if (input.status === "completed" && !input.outcome?.trim()) {
+      throw validationError("Completion requires an outcome");
+    }
+    if (input.status === "cancelled" && !input.cancelReason?.trim()) {
+      throw validationError("Cancellation requires a reason");
+    }
+  } else if (task.status === "completed" || task.status === "cancelled") {
+    throw conflict("Completed or cancelled tasks cannot be edited");
   }
-  if (input.status === "cancelled" && !input.cancelReason) {
-    throw validationError("Cancellation requires a reason");
+  if (input.ownerUserId && !(await isActiveMember(input.workspaceId, input.ownerUserId))) {
+    throw validationError("Task owner must be an active workspace member");
   }
 
-  await db
+  const updated = await db
     .update(tasks)
     .set({
       status: input.status ?? task.status,
-      outcome: input.outcome ?? task.outcome,
-      cancelReason: input.cancelReason ?? task.cancelReason,
+      outcome: input.status === "completed" ? input.outcome : task.outcome,
+      cancelReason: input.status === "cancelled" ? input.cancelReason : task.cancelReason,
+      ownerUserId: input.ownerUserId ?? task.ownerUserId,
+      dueAt: input.dueAt === undefined ? task.dueAt : input.dueAt ? new Date(input.dueAt) : null,
+      priority: input.priority ?? task.priority,
       updatedAt: new Date(),
     })
-    .where(eq(tasks.id, task.id));
+    // Guard against a concurrent transition from the same starting state
+    .where(and(eq(tasks.id, task.id), eq(tasks.status, task.status)))
+    .returning({ id: tasks.id });
+  if (!updated[0]) throw conflict("Task changed concurrently — reload and retry");
 
   if (input.status === "completed" || input.status === "cancelled") {
     await db.insert(activities).values({
@@ -102,24 +164,46 @@ export async function updateTask(input: {
       accountId: task.accountId,
       taskId: task.id,
       kind: input.status === "completed" ? "task_completed" : "task_cancelled",
-      note: input.outcome ?? input.cancelReason,
+      note: input.status === "completed" ? input.outcome : input.cancelReason,
       actorUserId: input.actorUserId,
     });
   }
 
   // Explicit: task completion does not update opportunity stage, send messages,
   // or create attended meetings — activity record only (gate 7).
-  const [updated] = await db.select().from(tasks).where(eq(tasks.id, task.id)).limit(1);
-  return updated!;
+  const [row] = await db.select().from(tasks).where(eq(tasks.id, task.id)).limit(1);
+  return row!;
 }
 
-export async function listTasks(workspaceId: string, filters?: {
-  ownerUserId?: string;
-  status?: string;
-}) {
+export async function listTasks(
+  tenantId: string,
+  workspaceId: string,
+  filters: {
+    ownerUserId?: string;
+    status?: TaskStatus;
+    priority?: TaskPriority;
+    accountId?: string;
+    due?: "overdue" | "today" | "week";
+  } = {},
+) {
   const db = getDb();
-  let rows = await db.select().from(tasks).where(eq(tasks.workspaceId, workspaceId));
-  if (filters?.ownerUserId) rows = rows.filter((t) => t.ownerUserId === filters.ownerUserId);
-  if (filters?.status) rows = rows.filter((t) => t.status === filters.status);
-  return rows;
+  const where: SQL[] = [eq(tasks.workspaceId, workspaceId), eq(tasks.tenantId, tenantId)];
+  if (filters.ownerUserId) where.push(eq(tasks.ownerUserId, filters.ownerUserId));
+  if (filters.status) where.push(eq(tasks.status, filters.status));
+  if (filters.priority) where.push(eq(tasks.priority, filters.priority));
+  if (filters.accountId) where.push(eq(tasks.accountId, filters.accountId));
+  if (filters.due) {
+    const now = new Date();
+    const horizon =
+      filters.due === "overdue"
+        ? now
+        : new Date(now.getTime() + (filters.due === "today" ? 1 : 7) * 86400000);
+    where.push(isNotNull(tasks.dueAt), lt(tasks.dueAt, horizon));
+    where.push(notInArray(tasks.status, ["completed", "cancelled"]));
+  }
+  return db
+    .select()
+    .from(tasks)
+    .where(and(...where))
+    .orderBy(asc(tasks.dueAt));
 }

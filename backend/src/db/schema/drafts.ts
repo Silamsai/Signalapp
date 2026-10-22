@@ -23,6 +23,8 @@ export const drafts = pgTable(
     staleWarning: integer("stale_warning").notNull().default(0),
     version: integer("version").notNull().default(1),
     authorUserId: text("author_user_id").notNull(),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    approvedBy: text("approved_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

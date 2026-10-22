@@ -22,6 +22,27 @@
       "when": 1761130000000,
       "tag": "0002_membership_currency",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1761140000000,
+      "tag": "0003_drop_unused_feature_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1761150000000,
+      "tag": "0004_add_review_quota_and_merge_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1761160000000,
+      "tag": "0005_add_password_change_flag",
+      "breakpoints": true
     }
   ]
 }

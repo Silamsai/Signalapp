@@ -40,6 +40,7 @@ export async function resolveSession(token: string | undefined) {
       userId: users.id,
       email: users.email,
       name: users.name,
+      mustChangePassword: users.mustChangePassword,
       expiresAt: sessions.expiresAt,
     })
     .from(sessions)
@@ -50,3 +51,13 @@ export async function resolveSession(token: string | undefined) {
 }
 
 export type Actor = NonNullable<Awaited<ReturnType<typeof resolveSession>>>;
+
+/** Sign out every other session of a user (after a password change). */
+export async function destroyOtherSessions(userId: string, keepToken?: string) {
+  const db = getDb();
+  const keep = keepToken ? hashToken(keepToken) : null;
+  const rows = await db.select({ id: sessions.id, tokenHash: sessions.tokenHash }).from(sessions).where(eq(sessions.userId, userId));
+  for (const r of rows) {
+    if (r.tokenHash !== keep) await db.delete(sessions).where(eq(sessions.id, r.id));
+  }
+}

@@ -1,16 +1,43 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { getDb } from "../db/client.js";
 import {
+  acceptanceDecisions,
   accountIdentities,
   accounts,
+  activities,
+  drafts,
   evidence,
+  handoffs,
   mergeCandidates,
+  researchRuns,
   signals,
-  qualifications,
-  qualificationFacts,
+  tasks,
 } from "../db/schema/index.js";
 import { notFound, validationError } from "../utils/errors.js";
 import { writeAudit } from "./audit.js";
+
+export async function listPendingMergeCandidates(tenantId: string, workspaceId: string) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(mergeCandidates)
+    .where(
+      and(
+        eq(mergeCandidates.workspaceId, workspaceId),
+        eq(mergeCandidates.tenantId, tenantId),
+        eq(mergeCandidates.status, "pending"),
+      ),
+    );
+  const ids = [...new Set(rows.flatMap((r) => [r.accountIdA, r.accountIdB]))];
+  const accts = ids.length
+    ? await db
+        .select({ id: accounts.id, name: accounts.name, domain: accounts.domain, country: accounts.country })
+        .from(accounts)
+        .where(and(eq(accounts.workspaceId, workspaceId), or(...ids.map((id) => eq(accounts.id, id)))))
+    : [];
+  const byId = new Map(accts.map((a) => [a.id, a]));
+  return rows.map((r) => ({ ...r, accountA: byId.get(r.accountIdA), accountB: byId.get(r.accountIdB) }));
+}
 
 export async function resolveMergeCandidate(input: {
   tenantId: string;
@@ -29,6 +56,7 @@ export async function resolveMergeCandidate(input: {
       and(
         eq(mergeCandidates.id, input.candidateId),
         eq(mergeCandidates.workspaceId, input.workspaceId),
+        eq(mergeCandidates.tenantId, input.tenantId),
       ),
     )
     .limit(1);
@@ -38,10 +66,8 @@ export async function resolveMergeCandidate(input: {
   }
 
   if (input.action === "reject" || input.action === "keep_separate") {
-    await db
-      .update(mergeCandidates)
-      .set({ status: input.action === "reject" ? "rejected" : "kept_separate" })
-      .where(eq(mergeCandidates.id, cand.id));
+    const status = input.action === "reject" ? "rejected" : "kept_separate";
+    await db.update(mergeCandidates).set({ status }).where(eq(mergeCandidates.id, cand.id));
     await writeAudit({
       tenantId: input.tenantId,
       workspaceId: input.workspaceId,
@@ -50,58 +76,83 @@ export async function resolveMergeCandidate(input: {
       entityType: "merge_candidate",
       entityId: cand.id,
     });
-    return { status: input.action === "reject" ? "rejected" : "kept_separate" };
+    return { status };
   }
 
   const keepId = input.keepAccountId ?? cand.accountIdA;
-  const dropId = keepId === cand.accountIdA ? cand.accountIdB : cand.accountIdA;
   if (keepId !== cand.accountIdA && keepId !== cand.accountIdB) {
     throw validationError("keepAccountId must be one of the candidate accounts");
   }
+  const dropId = keepId === cand.accountIdA ? cand.accountIdB : cand.accountIdA;
 
-  const [keep, drop] = await Promise.all([
-    db.select().from(accounts).where(eq(accounts.id, keepId)).limit(1),
-    db.select().from(accounts).where(eq(accounts.id, dropId)).limit(1),
-  ]);
-  if (!keep[0] || !drop[0]) throw notFound("Account not found for merge");
+  const [keep] = await db
+    .select()
+    .from(accounts)
+    .where(and(eq(accounts.id, keepId), eq(accounts.workspaceId, input.workspaceId), isNull(accounts.mergedIntoId)))
+    .limit(1);
+  const [drop] = await db
+    .select()
+    .from(accounts)
+    .where(and(eq(accounts.id, dropId), eq(accounts.workspaceId, input.workspaceId), isNull(accounts.mergedIntoId)))
+    .limit(1);
+  if (!keep || !drop) throw notFound("Account not found for merge");
+  if (drop.acceptanceState === "accepted") {
+    throw validationError("An accepted account cannot be merged away — keep it as the survivor");
+  }
 
-  // Move research artifacts onto survivor
+  // Move work and research onto the survivor; the merged record stays as history
   await db.update(evidence).set({ accountId: keepId }).where(eq(evidence.accountId, dropId));
   await db.update(signals).set({ accountId: keepId }).where(eq(signals.accountId, dropId));
-
-  // Prefer survivor qualification; drop the other
-  const dropQual = await db
+  await db.update(tasks).set({ accountId: keepId }).where(eq(tasks.accountId, dropId));
+  await db.update(drafts).set({ accountId: keepId }).where(eq(drafts.accountId, dropId));
+  await db.update(activities).set({ accountId: keepId }).where(eq(activities.accountId, dropId));
+  await db.update(handoffs).set({ accountId: keepId }).where(eq(handoffs.accountId, dropId));
+  await db.update(researchRuns).set({ accountId: keepId }).where(eq(researchRuns.accountId, dropId));
+  await db
+    .update(acceptanceDecisions)
+    .set({ accountId: keepId })
+    .where(eq(acceptanceDecisions.accountId, dropId));
+  const dropIdentities = await db
     .select()
-    .from(qualifications)
-    .where(eq(qualifications.accountId, dropId))
-    .limit(1);
-  if (dropQual[0]) {
-    await db
-      .delete(qualificationFacts)
-      .where(eq(qualificationFacts.qualificationId, dropQual[0].id));
-    await db.delete(qualifications).where(eq(qualifications.id, dropQual[0].id));
+    .from(accountIdentities)
+    .where(eq(accountIdentities.accountId, dropId));
+  for (const ident of dropIdentities) {
+    await db.update(accountIdentities).set({ accountId: keepId }).where(eq(accountIdentities.id, ident.id));
   }
-
-  await db.delete(accountIdentities).where(eq(accountIdentities.accountId, dropId));
-  await db.delete(accounts).where(eq(accounts.id, dropId));
 
   await db
-    .update(mergeCandidates)
-    .set({ status: "merged" })
-    .where(eq(mergeCandidates.id, cand.id));
+    .update(accounts)
+    .set({
+      mergedIntoId: keepId,
+      updatedAt: new Date(),
+      version: drop.version + 1,
+    })
+    .where(eq(accounts.id, dropId));
+  // Survivor inherits missing identity fields, never overwrites existing ones
+  await db
+    .update(accounts)
+    .set({
+      domain: keep.domain ?? drop.domain,
+      country: keep.country ?? drop.country,
+      legalName: keep.legalName ?? drop.legalName,
+      fitScore: Math.max(keep.fitScore ?? 0, drop.fitScore ?? 0) || keep.fitScore,
+      updatedAt: new Date(),
+      version: keep.version + 1,
+    })
+    .where(eq(accounts.id, keepId));
 
-  // Close other pending candidates involving the dropped account
-  const others = await db
-    .select()
-    .from(mergeCandidates)
+  await db.update(mergeCandidates).set({ status: "merged" }).where(eq(mergeCandidates.id, cand.id));
+  // Other pending candidates involving the merged record are superseded
+  await db
+    .update(mergeCandidates)
+    .set({ status: "superseded" })
     .where(
-      and(eq(mergeCandidates.workspaceId, input.workspaceId), eq(mergeCandidates.status, "pending")),
+      and(
+        eq(mergeCandidates.workspaceId, input.workspaceId),
+        eq(mergeCandidates.status, "pending"),
+        or(eq(mergeCandidates.accountIdA, dropId), eq(mergeCandidates.accountIdB, dropId)),
+      ),
     );
-  for (const o of others) {
-    if (o.accountIdA === dropId || o.accountIdB === dropId) {
-      await db.update(mergeCandidates).set({ status: "superseded" }).where(eq(mergeCandidates.id, o.id));
-    }
-  }
 
   await writeAudit({
     tenantId: input.tenantId,
@@ -110,8 +161,8 @@ export async function resolveMergeCandidate(input: {
     action: "merge.merged",
     entityType: "merge_candidate",
     entityId: cand.id,
-    metadata: { keepAccountId: keepId, droppedAccountId: dropId },
+    metadata: { keepAccountId: keepId, mergedAccountId: dropId },
   });
 
-  return { status: "merged", keepAccountId: keepId, droppedAccountId: dropId };
+  return { status: "merged", keepAccountId: keepId, mergedAccountId: dropId };
 }

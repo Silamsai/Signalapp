@@ -11,16 +11,16 @@ import { taskRoutes } from "./tasks.js";
 import { handoffRoutes } from "./handoffs.js";
 import { draftRoutes } from "./drafts.js";
 import { outcomeRoutes } from "./outcomes.js";
-import { monitorRoutes } from "./monitors.js";
-import { notificationRoutes } from "./notifications.js";
-import { campaignRoutes } from "./campaigns.js";
-import { scoringRoutes } from "./scoring.js";
 import { membershipRoutes } from "./memberships.js";
+import { suppressionRoutes } from "./suppressions.js";
+import { evidenceRoutes } from "./evidence.js";
 
 export async function v1Routes(app: FastifyInstance) {
   await authRoutes(app);
   await workspaceRoutes(app);
   await membershipRoutes(app);
+  await suppressionRoutes(app);
+  await evidenceRoutes(app);
   await settingsRoutes(app);
   await accountRoutes(app);
   await importRoutes(app);
@@ -31,8 +31,4 @@ export async function v1Routes(app: FastifyInstance) {
   await handoffRoutes(app);
   await draftRoutes(app);
   await outcomeRoutes(app);
-  await monitorRoutes(app);
-  await notificationRoutes(app);
-  await campaignRoutes(app);
-  await scoringRoutes(app);
 }
