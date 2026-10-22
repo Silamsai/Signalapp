@@ -100,7 +100,7 @@ export default function LoginPage() {
           try {
             if (mode === "login") {
               const { user } = await login(email, password);
-              router.push(user.mustChangePassword ? "/account/password" : "/discover");
+              router.push(user.mustChangePassword ? "/settings/password" : "/discover");
               return;
             }
             if (mode === "register") {

@@ -59,7 +59,7 @@ export function ResearchRunStatus({
       {status === "completed" && run?.result && !noResults ? (
         <p className="mt-2 text-[var(--muted)]">
           {run.mode === "discovery"
-            ? `${run.result.candidateAccountIds?.length ?? 0} new candidate accounts · ${run.result.alreadyKnownAccountIds?.length ?? 0} already in the watchlist · ${run.result.skippedSuppressed ?? 0} suppressed skipped`
+            ? `${run.result.rows?.length ?? 0} companies found · ${run.result.unmatched ?? 0} articles not tied to one company · ${run.result.skippedSuppressed ?? 0} suppressed skipped`
             : `${run.result.evidenceCreated ?? 0} new evidence items · ${run.result.duplicatesSkipped ?? 0} duplicates skipped`}
         </p>
       ) : null}

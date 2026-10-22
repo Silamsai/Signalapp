@@ -78,11 +78,14 @@ a {
   text-decoration: none;
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
+/* In the base layer so Tailwind utilities (e.g. text-sm) can still size controls */
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
 }
 
 /* ——— Auth (login / create account) ——— */
@@ -340,3 +343,38 @@ textarea {
   color: var(--muted);
 }
 
+
+/* Hand cursor on everything clickable (Tailwind v4 resets buttons to the arrow) */
+@layer base {
+  button,
+  [role="button"],
+  a[href],
+  select,
+  summary,
+  label:has(> input[type="checkbox"]),
+  label:has(> input[type="radio"]),
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="file"],
+  input[type="range"],
+  input[type="date"],
+  input[type="datetime-local"] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled,
+  input:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
+/* Faint example text inside empty fields */
+@layer base {
+  input::placeholder,
+  textarea::placeholder {
+    color: #a3adb8;
+    opacity: 1;
+  }
+}

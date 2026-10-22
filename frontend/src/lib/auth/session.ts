@@ -27,7 +27,8 @@ export async function login(email: string, password: string) {
 }
 
 export async function logout() {
-  return api<{ ok: boolean }>("/v1/auth/logout", { method: "POST" });
+  // A JSON body is required: the API rejects an empty body sent as application/json
+  return api<{ ok: boolean }>("/v1/auth/logout", { method: "POST", body: "{}", keepalive: true });
 }
 
 export async function me() {

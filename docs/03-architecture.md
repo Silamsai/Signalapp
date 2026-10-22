@@ -44,7 +44,7 @@
 
 1. `POST /v1/workspaces/:id/research-runs` validates permission, checks the kill switch, **reserves budget** atomically, stores the brief and executed filters plus the playbook version, and queues the job.
 2. The worker claims the run, calls Exa (30 s timeout, normalized errors), writes **provider usage immediately**, then stores the fetched results on the run.
-3. *Account mode*: evidence is canonicalized, deduplicated per account (URL, content fingerprint, event fingerprint), scored, and contradictions flagged. *Discovery mode*: candidate accounts are created, skipping suppressed domains and raising merge candidates.
+3. *Account mode*: evidence is canonicalized, deduplicated per account (URL, content fingerprint, event fingerprint), scored, and contradictions flagged. *Discovery mode*: Exa also returns a structured summary of each article (company name, website, signal type, one-line event). Articles are matched to accounts by website, or by name (flagged for identity review), grouped per company, and saved as evidence on that account, which becomes *researched* and scored. Suppressed domains are skipped, same-name/different-website companies raise merge candidates, and articles about no single company are counted as unmatched. The run's result lists one row per company for the Search table and CSV export.
 4. Retries keep the reservation; a retry after charging reuses stored results, so it is **never charged twice**. A final failure refunds only if nothing was charged.
 
 ## Performance notes

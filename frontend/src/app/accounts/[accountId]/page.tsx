@@ -14,7 +14,7 @@ import { HandoffPanel } from "@/components/handoffs/HandoffPanel";
 import { TaskForm } from "@/components/tasks/TaskForm";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { getBrief, type Brief } from "@/lib/api/accounts";
-import { startResearchRun } from "@/lib/api/research";
+import { listResearchRuns, startResearchRun } from "@/lib/api/research";
 import { createDraft } from "@/lib/api/drafts";
 import { LoadingState } from "@/components/common/LoadingState";
 import { ErrorState } from "@/components/common/ErrorState";
@@ -41,6 +41,16 @@ function AccountBrief({ workspaceId, accountId }: { workspaceId: string; account
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // After a refresh, show the progress of research that is still running
+  useEffect(() => {
+    void listResearchRuns(workspaceId, { accountId, limit: 1 })
+      .then(({ runs }) => {
+        const latest = runs[0];
+        if (latest && ["queued", "running", "retrying"].includes(latest.status)) setRunId(latest.id);
+      })
+      .catch(() => undefined);
+  }, [workspaceId, accountId]);
 
   if (loadError) return <ErrorState message={loadError} />;
   if (!brief) return <LoadingState label="Loading brief…" />;

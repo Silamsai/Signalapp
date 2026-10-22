@@ -49,7 +49,7 @@ SignalApp/
 | URL | Who | Purpose |
 |---|---|---|
 | `/login` | Everyone | Sign in |
-| `/account/password` | Everyone | Change password (forced after a temporary password) |
+| `/settings/password` | Everyone | Change password (forced after a temporary password) |
 | `/discover`, `/discover/search`, `/discover/playbooks` | Researcher, admin | Opportunity feed, brief-based search, playbooks |
 | `/accounts`, `/accounts/[accountId]`, `/accounts/[accountId]/qualification` | Internal roles | Watchlist & import, account brief, qualification |
 | `/accounts/acceptance`, `/accounts/pipeline` | Reviewer / researcher | Review queue, accepted accounts |

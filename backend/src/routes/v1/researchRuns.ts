@@ -14,7 +14,9 @@ import { isResearchConfigured } from "../../providers/research/index.js";
 import { notFound, providerNotConfigured, validationError } from "../../utils/errors.js";
 import { getUsage, reserveResearchBudget } from "../../services/budget.js";
 import { assertResearchAllowed } from "../../services/entitlements.js";
-import { isAccountSuppressed } from "../../services/suppressions.js";
+import { activeSuppressionSet, isAccountSuppressed } from "../../services/suppressions.js";
+import { toCsv } from "../../utils/csv.js";
+import type { DiscoveryRow } from "../../jobs/handlers/researchRun.js";
 import { parseBrief } from "../../services/briefParser.js";
 import { newId } from "../../utils/ids.js";
 import { writeAudit } from "../../services/audit.js";
@@ -175,6 +177,101 @@ export async function researchRunRoutes(app: FastifyInstance) {
       });
 
       return { researchRunId: id, status: "queued" };
+    },
+  );
+
+  /** Recent runs, so pages can restore the latest search or an in-progress run after a refresh. */
+  app.get(
+    "/v1/workspaces/:workspaceId/research-runs",
+    { preHandler: authenticateRequired },
+    async (req) => {
+      const { workspaceId } = req.params as { workspaceId: string };
+      const m = await loadMembership(req, workspaceId);
+      const q = z
+        .object({
+          mode: z.enum(["account", "discovery"]).optional(),
+          accountId: z.string().optional(),
+          limit: z.coerce.number().int().min(1).max(50).default(10),
+        })
+        .parse(req.query);
+      if (q.accountId) await assertAccountReadable(m, q.accountId);
+      else requireCap(m, q.mode === "discovery" ? "discover" : "view_accounts");
+
+      const db = getDb();
+      const where = [eq(researchRuns.workspaceId, m.workspaceId), eq(researchRuns.tenantId, m.tenantId)];
+      if (q.mode) where.push(eq(researchRuns.mode, q.mode));
+      if (q.accountId) where.push(eq(researchRuns.accountId, q.accountId));
+      const runs = await db
+        .select({
+          id: researchRuns.id,
+          mode: researchRuns.mode,
+          status: researchRuns.status,
+          brief: researchRuns.brief,
+          query: researchRuns.query,
+          accountId: researchRuns.accountId,
+          resultJson: researchRuns.resultJson,
+          createdAt: researchRuns.createdAt,
+          completedAt: researchRuns.completedAt,
+        })
+        .from(researchRuns)
+        .where(and(...where))
+        .orderBy(desc(researchRuns.createdAt))
+        .limit(q.limit);
+      return {
+        runs: runs.map(({ resultJson, ...r }) => {
+          const result = resultJson ? (JSON.parse(resultJson) as { stage?: string; rows?: unknown[] }) : null;
+          return { ...r, companies: result?.stage === "done" ? (result.rows?.length ?? 0) : null };
+        }),
+      };
+    },
+  );
+
+  /** Formula-safe CSV of a discovery run's companies; suppressed domains are left out. */
+  app.get(
+    "/v1/research-runs/:id/results.csv",
+    { preHandler: authenticateRequired },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const q = z.object({ workspaceId: z.string() }).parse(req.query);
+      const m = await loadMembership(req, q.workspaceId);
+      requireCap(m, "export");
+      const db = getDb();
+      const [run] = await db
+        .select()
+        .from(researchRuns)
+        .where(and(eq(researchRuns.id, id), eq(researchRuns.workspaceId, m.workspaceId), eq(researchRuns.tenantId, m.tenantId)))
+        .limit(1);
+      if (!run) throw notFound("Research run not found");
+      const result = run.resultJson ? (JSON.parse(run.resultJson) as { stage?: string; rows?: DiscoveryRow[] }) : null;
+      if (result?.stage !== "done" || !result.rows) throw validationError("This run has no exportable results");
+      const suppressed = await activeSuppressionSet(m.workspaceId);
+      const rows = result.rows.filter((r) => !r.domain || !suppressed.has(r.domain));
+      await writeAudit({
+        tenantId: m.tenantId,
+        workspaceId: m.workspaceId,
+        actorUserId: m.userId,
+        action: "research_run.results_exported",
+        entityType: "research_run",
+        entityId: run.id,
+        metadata: { rows: rows.length },
+      });
+      reply.header("content-type", "text/csv; charset=utf-8");
+      reply.header("content-disposition", `attachment; filename="search-results-${run.id}.csv"`);
+      reply.header("cache-control", "no-store");
+      return toCsv(
+        ["company", "domain", "country", "trigger", "event_date", "source_url", "sources", "priority", "identity_check"],
+        rows.map((r) => [
+          r.name,
+          r.domain,
+          r.country,
+          r.trigger.summary ?? r.trigger.title,
+          r.trigger.eventDate ? r.trigger.eventDate.slice(0, 10) : "unknown",
+          r.trigger.url,
+          r.sources,
+          r.fitScore,
+          r.identityNeedsReview ? "needs review" : "confirmed by website",
+        ]),
+      );
     },
   );
 

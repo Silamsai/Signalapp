@@ -40,10 +40,10 @@ Rahul opens **Discover → Search** and types:
 
 Before anything runs, SignalApp shows how it understood the brief: countries `GB`, industry *Financial Services*, signals *expansion, refresh*, window 90 days. Anything it can't filter on (for example "revenue over £50m") is listed, not silently ignored. Rahul confirms. A **discovery run** goes to a background job that asks **Exa** (a web-search API) for matching companies. It uses research units from Northbridge's monthly quota.
 
-Result: three candidate accounts, including **Harbourline Insurance** (`harbourline.co.uk`). They start as *unresearched*; nothing is assumed yet.
+The search looks for **signal events** (news, announcements, job posts), and the provider identifies which company each article is about. Articles are grouped per company, and a results table appears right under the search: **Account · Trigger (what happened, when) · Evidence (cited sources) · Priority · Review**, with **Export results** for a CSV. One row is **Harbourline Insurance** (`harbourline.co.uk`). If an article names a company but its website can't be confirmed, the row is marked **Check company** instead of guessing. Articles not clearly about one company are counted, not attached.
 
 ### 3. Research and evidence
-Rahul opens Harbourline and clicks **Run research**. The job finds:
+Rahul clicks **Review** on Harbourline. Its evidence is already attached from the search (he can also click **Re-research** later for fresh sources):
 - *"Harbourline Insurance opens new Leeds data centre"* (news.example.co.uk, event date 2 Oct)
 - *"Harbourline hiring 6 infrastructure engineers"* (jobs site, **event date unknown**)
 

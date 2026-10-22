@@ -61,12 +61,49 @@ export type ResearchRun = {
     noResults?: boolean;
     evidenceCreated?: number;
     duplicatesSkipped?: number;
-    candidateAccountIds?: string[];
-    alreadyKnownAccountIds?: string[];
+    rows?: DiscoveryRow[];
+    unmatched?: number;
     skippedSuppressed?: number;
   } | null;
 };
 
+/** One company found by a discovery search, with its latest trigger */
+export type DiscoveryRow = {
+  accountId: string;
+  name: string;
+  domain: string | null;
+  country: string | null;
+  isNew: boolean;
+  identityNeedsReview: boolean;
+  trigger: { title: string | null; summary: string | null; eventDate: string | null; url: string };
+  sources: number;
+  fitScore: number | null;
+};
+
 export function getResearchRun(id: string, workspaceId: string) {
   return api<{ researchRun: ResearchRun }>(`/v1/research-runs/${id}?workspaceId=${workspaceId}`);
+}
+
+export type ResearchRunSummary = {
+  id: string;
+  mode: "account" | "discovery";
+  status: string;
+  brief: string | null;
+  query: string;
+  accountId: string | null;
+  companies: number | null;
+  createdAt: string;
+  completedAt: string | null;
+};
+
+export function listResearchRuns(
+  workspaceId: string,
+  opts: { mode?: "account" | "discovery"; accountId?: string; limit?: number } = {},
+) {
+  const qs = new URLSearchParams(
+    Object.entries(opts)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => [k, String(v)]),
+  );
+  return api<{ runs: ResearchRunSummary[] }>(`/v1/workspaces/${workspaceId}/research-runs${qs.size ? `?${qs}` : ""}`);
 }

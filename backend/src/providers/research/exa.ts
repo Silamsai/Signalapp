@@ -23,6 +23,49 @@ const SIGNAL_TERMS: Record<string, string> = {
   procurement: "IT infrastructure tender procurement",
 };
 
+const SIGNAL_TYPES = ["expansion", "infra_hiring", "refresh", "compute", "procurement", "other"] as const;
+
+/** Structured extraction of the article's subject company (entity matching, spec §6). */
+const SUBJECT_SUMMARY = {
+  query:
+    "Which single company is this page primarily about that is expanding, hiring, refreshing IT, adding compute or buying infrastructure? Leave fields empty if unclear or if several companies are equally involved.",
+  schema: {
+    type: "object",
+    properties: {
+      companyName: { type: "string", description: "Name of that one company, or empty if unclear" },
+      companyWebsite: { type: "string", description: "That company's own website domain, e.g. example.com, or empty if unknown" },
+      signalType: { type: "string", enum: [...SIGNAL_TYPES] },
+      eventSummary: { type: "string", description: "One sentence: what the company did and where" },
+    },
+    required: ["companyName", "companyWebsite", "signalType", "eventSummary"],
+  },
+};
+
+type Subject = {
+  companyName: string | null;
+  companyWebsite: string | null;
+  signalType: string | null;
+  eventSummary: string | null;
+};
+
+/** Parse the provider's JSON summary; anything malformed or empty becomes "unknown". */
+export function parseSubject(summary: unknown): Subject | null {
+  if (typeof summary !== "string" || !summary.trim()) return null;
+  try {
+    const raw = JSON.parse(summary) as Record<string, unknown>;
+    const str = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+    const signalType = str(raw.signalType, 40);
+    return {
+      companyName: str(raw.companyName, 200),
+      companyWebsite: str(raw.companyWebsite, 200),
+      signalType: signalType && (SIGNAL_TYPES as readonly string[]).includes(signalType) && signalType !== "other" ? signalType : null,
+      eventSummary: str(raw.eventSummary, 400),
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -94,6 +137,7 @@ export class ExaResearchProvider implements ResearchProvider {
         excerpt = row.text.slice(0, 800);
       }
 
+      const subject = parseSubject(row.summary);
       items.push({
         canonicalUrl: canonicalizeUrl(url),
         title: typeof row.title === "string" ? row.title.slice(0, 300) : undefined,
@@ -104,9 +148,16 @@ export class ExaResearchProvider implements ResearchProvider {
         country: countryFromUrl(url),
         matchRationale: "Matched by Exa web search for the research query",
         providerRequestRef: requestRef,
-        signalKind: "web_signal",
+        signalKind: subject?.signalType ?? "web_signal",
         fitHint: 55,
         qualityHint: 65,
+        subject: subject
+          ? {
+              companyName: subject.companyName,
+              companyWebsite: subject.companyWebsite,
+              eventSummary: subject.eventSummary,
+            }
+          : undefined,
       });
     }
     return items;
@@ -121,16 +172,17 @@ export class ExaResearchProvider implements ResearchProvider {
     const exa = this.client();
     const numResults = Math.min(Math.max(budget, 1), 10);
 
+    // Both modes search for signal events (news, announcements, postings) in the event window.
+    // Discovery additionally asks the provider which company each article is about.
     const parts = [query];
     if (filters.industries?.length) parts.push(filters.industries.join(" "));
     const kinds = filters.signalKinds?.length ? filters.signalKinds : Object.keys(SIGNAL_TERMS);
-    if (mode === "account") parts.push(kinds.map((k) => SIGNAL_TERMS[k] ?? k).join(" "));
+    parts.push(kinds.map((k) => SIGNAL_TERMS[k] ?? k).join(" "));
     const fullQuery = parts.filter(Boolean).join(" ").trim().slice(0, 1000);
 
-    const startPublishedDate =
-      mode === "account" && filters.eventWindowDays
-        ? new Date(Date.now() - filters.eventWindowDays * 86400000).toISOString()
-        : undefined;
+    const startPublishedDate = filters.eventWindowDays
+      ? new Date(Date.now() - filters.eventWindowDays * 86400000).toISOString()
+      : undefined;
 
     let response: { requestId?: string; results: unknown[] };
     try {
@@ -139,7 +191,7 @@ export class ExaResearchProvider implements ResearchProvider {
           type: "auto",
           numResults,
           highlights: true,
-          ...(mode === "discovery" ? { category: "company" as const } : {}),
+          ...(mode === "discovery" ? { summary: SUBJECT_SUMMARY } : {}),
           ...(startPublishedDate ? { startPublishedDate } : {}),
           ...(filters.countries?.length === 1 ? { userLocation: filters.countries[0] } : {}),
           ...(filters.excludeDomains?.length

@@ -10,6 +10,7 @@ import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import { EmptyState } from "@/components/common/EmptyState";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { usePersistentState } from "@/hooks/usePersistentState";
 import {
   downloadFile,
   listAccounts,
@@ -24,8 +25,8 @@ function Watchlist({ workspaceId }: { workspaceId: string }) {
   const { can, role } = useWorkspace();
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [merges, setMerges] = useState<MergeCandidate[]>([]);
-  const [researchState, setResearchState] = useState("");
-  const [acceptanceState, setAcceptanceState] = useState("");
+  const [researchState, setResearchState] = usePersistentState(`${workspaceId}:accounts:research`, "");
+  const [acceptanceState, setAcceptanceState] = usePersistentState(`${workspaceId}:accounts:acceptance`, "");
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {

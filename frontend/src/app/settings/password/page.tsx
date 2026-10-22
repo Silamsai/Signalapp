@@ -22,7 +22,7 @@ export default function ChangePasswordPage() {
   const mismatch = confirm.length > 0 && next !== confirm;
 
   return (
-    <div className="mx-auto max-w-md">
+    <div className="max-w-md">
       <Card>
         <h1 className="text-[20px]">{forced ? "Set your own password" : "Change password"}</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
@@ -65,8 +65,9 @@ export default function ChangePasswordPage() {
               onChange={(e) => setCurrent(e.target.value)}
             />
           </Field>
-          <Field label="New password" hint="At least 12 characters.">
+          <Field label="New password">
             <input
+              placeholder="At least 12 characters"
               type="password"
               autoComplete="new-password"
               required

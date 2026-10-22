@@ -8,6 +8,7 @@ import { RequireCap } from "@/components/common/RequireCap";
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { usePersistentState } from "@/hooks/usePersistentState";
 import { listTasks, patchTask, type Task, type TaskFilters } from "@/lib/api/tasks";
 import { listAccounts, listPeople, type Account } from "@/lib/api/accounts";
 import { Button } from "@/components/ui/Button";
@@ -18,7 +19,7 @@ function SdrQueue({ workspaceId }: { workspaceId: string }) {
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [people, setPeople] = useState<Array<{ userId: string; name: string }>>([]);
-  const [filters, setFilters] = useState<TaskFilters>({ status: "open" });
+  const [filters, setFilters] = usePersistentState<TaskFilters>(`${workspaceId}:tasks:filters`, { status: "open" });
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

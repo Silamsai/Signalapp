@@ -10,10 +10,11 @@ import { OpportunityFeed } from "@/components/accounts/OpportunityFeed";
 import { KpiTile } from "@/components/ui/KpiTile";
 import { Button } from "@/components/ui/Button";
 import { listAccounts, type Account } from "@/lib/api/accounts";
+import { usePersistentState } from "@/hooks/usePersistentState";
 
 function Feed({ workspaceId }: { workspaceId: string }) {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
-  const [minScore, setMinScore] = useState<number | null>(null);
+  const [minScore, setMinScore] = usePersistentState<number | null>(`${workspaceId}:feed:minScore`, null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

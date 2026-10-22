@@ -129,10 +129,11 @@ export function HandoffPanel({
         >
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Receiving organization">
-              <input className={inputClass} value={form.receivingOrg} onChange={(e) => setForm({ ...form, receivingOrg: e.target.value })} />
+              <input className={inputClass} value={form.receivingOrg} onChange={(e) => setForm({ ...form, receivingOrg: e.target.value })} placeholder="e.g. Kestrel IT" />
             </Field>
-            <Field label="Named recipient (email)" hint="Must be a Partner member of this workspace before sharing.">
+            <Field label="Named recipient (Partner member email)">
               <input
+                placeholder="e.g. jo@kestrel-it.com"
                 type="email"
                 className={inputClass}
                 value={form.receivingUser}
@@ -157,10 +158,10 @@ export function HandoffPanel({
               <input type="date" className={inputClass} value={form.dueAt} onChange={(e) => setForm({ ...form, dueAt: e.target.value })} />
             </Field>
             <Field label="Reason for handoff">
-              <input className={inputClass} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
+              <input className={inputClass} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="e.g. Needs an on-site installer in Leeds" />
             </Field>
             <Field label="Next action for the partner">
-              <input className={inputClass} value={form.nextAction} onChange={(e) => setForm({ ...form, nextAction: e.target.value })} />
+              <input className={inputClass} value={form.nextAction} onChange={(e) => setForm({ ...form, nextAction: e.target.value })} placeholder="e.g. Book a site survey this week" />
             </Field>
           </div>
           <fieldset>

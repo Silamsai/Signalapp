@@ -13,6 +13,8 @@ import { newId } from "../utils/ids.js";
 import { hashPassword } from "../auth/password.js";
 import { writeAudit } from "./audit.js";
 import { randomBytes } from "node:crypto";
+import { forgetMemberships } from "../middleware/requireMembership.js";
+import { forgetUserSessions } from "../auth/session.js";
 
 export async function listMemberships(workspaceId: string) {
   const db = getDb();
@@ -82,6 +84,7 @@ export async function grantMembership(input: {
       .update(memberships)
       .set({ revokedAt: null, role: input.role })
       .where(eq(memberships.id, existing[0].id));
+    forgetMemberships();
     await writeAudit({
       tenantId: input.tenantId,
       workspaceId: input.workspaceId,
@@ -105,6 +108,7 @@ export async function grantMembership(input: {
     userId: user!.id,
     role: input.role,
   });
+  forgetMemberships();
 
   await writeAudit({
     tenantId: input.tenantId,
@@ -148,6 +152,7 @@ export async function revokeMembership(input: {
     .update(memberships)
     .set({ revokedAt: new Date() })
     .where(eq(memberships.id, row.id));
+  forgetMemberships();
 
   await writeAudit({
     tenantId: input.tenantId,
@@ -213,6 +218,7 @@ export async function resetMemberPassword(input: {
     .where(eq(users.id, row.userId));
   // Sign the person out everywhere
   await db.delete(sessions).where(eq(sessions.userId, row.userId));
+  forgetUserSessions(row.userId);
 
   await writeAudit({
     tenantId: input.tenantId,

@@ -6,6 +6,7 @@ import { RequireCap } from "@/components/common/RequireCap";
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import { getOutcomes, type Outcomes } from "@/lib/api/settings";
+import { usePersistentState } from "@/hooks/usePersistentState";
 import { KpiTile } from "@/components/ui/KpiTile";
 import { Card } from "@/components/ui/Card";
 import { Field, humanize, inputClass } from "@/components/ui/Field";
@@ -13,8 +14,8 @@ import { Field, humanize, inputClass } from "@/components/ui/Field";
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
 function OutcomesView({ workspaceId }: { workspaceId: string }) {
-  const [from, setFrom] = useState(isoDay(new Date(Date.now() - 90 * 86400000)));
-  const [to, setTo] = useState(isoDay(new Date()));
+  const [from, setFrom] = usePersistentState(`${workspaceId}:outcomes:from`, isoDay(new Date(Date.now() - 90 * 86400000)));
+  const [to, setTo] = usePersistentState(`${workspaceId}:outcomes:to`, isoDay(new Date()));
   const [data, setData] = useState<Outcomes | null>(null);
   const [error, setError] = useState<string | null>(null);
 
