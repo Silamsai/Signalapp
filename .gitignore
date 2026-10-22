@@ -1,0 +1,32 @@
+# Dependencies & build (each app has its own node_modules)
+node_modules/
+dist/
+.next/
+coverage/
+.turbo/
+*.tsbuildinfo
+*.log
+.DS_Store
+
+# Secrets & keys — never commit
+.env
+.env.*
+.env.local
+**/.env
+**/.env.*
+**/.env.local
+*.pem
+*.p12
+*.key
+*credentials*
+*secret*
+!.env.example
+
+# Neon link + CLI (backend/)
+.neon
+**/.neon
+
+# Local agent / IDE clutter
+.agents/
+.cursor/
+.vscode/
