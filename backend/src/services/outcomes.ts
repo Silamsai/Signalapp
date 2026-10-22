@@ -5,12 +5,16 @@ import {
   accounts,
   handoffs,
   tasks,
+  workspaces,
 } from "../db/schema/index.js";
 
 export async function computeOutcomes(workspaceId: string, from?: string, to?: string) {
   const db = getDb();
   const fromDate = from ? new Date(from) : new Date(Date.now() - 90 * 86400000);
   const toDate = to ? new Date(to) : new Date();
+
+  const [ws] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+  const currency = ws?.currency ?? "GBP";
 
   const acct = await db.select().from(accounts).where(eq(accounts.workspaceId, workspaceId));
   const decisions = await db
@@ -49,6 +53,7 @@ export async function computeOutcomes(workspaceId: string, from?: string, to?: s
 
   return {
     cohort: { from: fromDate.toISOString(), to: toDate.toISOString() },
+    currency,
     denominators: {
       accountsWithReviewerDecision: decidedAccounts.size,
       researchedAccounts: researched,
@@ -66,7 +71,8 @@ export async function computeOutcomes(workspaceId: string, from?: string, to?: s
     notes: [
       "Acceptance rate = distinct accepted accounts / distinct accounts with a reviewer decision",
       "Task completion is an activity count only",
-      "Meetings/revenue require CRM or independent records (Phase 2+)",
+      `Currency ${currency} disclosed for monetary fields when present; Phase 1 has no revenue amounts`,
+      "Metrics reconcile from acceptance_decisions, tasks, and handoffs activity records",
     ],
   };
 }

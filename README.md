@@ -1,48 +1,42 @@
-# Infrastructure Signal
+# SignalApp
 
-Infrastructure Signal helps infrastructure sales teams find accounts that are ready to engage, build a clear brief with evidence, and follow through — without inventing contacts or sending campaigns for you.
+SignalApp helps infrastructure sales teams find accounts that are ready to engage, build a clear brief with evidence, and follow through — then monitor changes, run approved outreach sequences, and improve ranking over time.
 
 ## What it does
 
 - **Discover** — Spot opportunities and search for prospects that match your offer.
-- **Accounts** — Keep a watchlist, review research, and move accounts through acceptance and pipeline.
-- **Qualify** — Capture why an account fits (and what’s still unknown) with a shared brief.
-- **Outreach** — Assign SDR tasks and edit email drafts in one place. Sending campaigns is not part of this version.
-- **Reports** — See acceptance and follow-through outcomes for your workspace.
-- **Settings** — Describe your offering and targeting so signals stay relevant.
+- **Accounts** — Watchlist, sales acceptance, pipeline, and **Monitors** for scheduled change alerts.
+- **Qualify & hand off** — Shared briefs, acceptance, and partner handoffs (prepare → share → acknowledge / return → close).
+- **Outreach** — SDR tasks, drafts, **Campaigns** (approve then launch), and **Replies**.
+- **Reports** — Outcomes plus **Score models** to evaluate and activate ranking rules.
+- **Settings** — Offer targeting, connections & usage (kill switches), and **Sending accounts**.
 
-## Who it’s for
-
-Sales leaders, SDRs, and partners who need a shared view of account research and qualification — not another inbox tool.
+CRM sync is not part of this deployment.
 
 ## How to use it
 
-1. Open the app and **log in** with your workspace credentials.
-2. Under **Settings → Offer & targeting**, confirm what you sell and where you sell it.
-3. Go to **Discover** to review opportunities, run a search, or use a playbook.
-4. Open an **account** to review evidence, scores, and the qualification brief.
-5. Submit for **sales acceptance** when the brief is ready for a reviewer.
-6. Use **Outreach** for tasks and drafts once an account is accepted.
-7. Check **Reports** to see how reviews and follow-ups are going.
+1. **Log in** with your workspace credentials.
+2. Configure **Settings → Offer & targeting**.
+3. Use **Discover** / imports, then open an account to research and qualify.
+4. Submit for **sales acceptance**; use **Handoff** when a partner should take over.
+5. Create **Monitors** under Accounts to watch for material changes (alerts appear in the header).
+6. Under **Settings → Sending accounts**, add a domain, verify, connect a mailbox, and enable it (simulated sending).
+7. Build a **Campaign**, save a draft, submit → approve → launch. Check **Replies** for inbound responses (or simulate one).
+8. In **Reports → Score models**, create a candidate, evaluate, activate, or roll back.
 
-Imported accounts stay unresearched until research has been run. Unknowns are allowed — the product is built so you don’t invent facts to fill gaps.
+## Getting started (local)
 
-## Getting started (first-time setup)
+1. Start the API and worker from `backend/`.
+2. Start the web app from `frontend/`.
+3. Open the login page.
 
-Ask your admin for workspace access. If you’re setting up a local copy of the product:
-
-1. Start the API and background worker from the `backend` folder.
-2. Start the web app from the `frontend` folder.
-3. Sign in at the login page.
-
-A local demo login (after the database has been seeded):
+Demo login after seed:
 
 - Email: `admin@signal.local`
 - Password: `password123`
 
-## What this version does not do
+## Notes
 
-- It does not send email campaigns or sync a CRM.
-- Create account and password reset on the login screen are placeholders until invite-based access is fully rolled out.
-
-For questions about access or resets, contact your workspace admin.
+- Campaign email uses a **simulated** sender — nothing is delivered to a real inbox.
+- Create account / forgot password on the login screen still require a workspace admin for real access.
+- Sending and research can be paused with kill switches under Connections & usage.

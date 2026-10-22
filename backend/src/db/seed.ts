@@ -21,6 +21,12 @@ async function seed() {
   const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (existing[0]) {
     console.log("Seed already applied. Login:", email, "/ password123");
+    // Ensure Phase 2 entitlements exist for older seeds
+    const { ensureEntitlements } = await import("../services/entitlements.js");
+    const mems = await db.select().from(memberships).where(eq(memberships.userId, existing[0].id));
+    for (const mem of mems) {
+      await ensureEntitlements(mem.tenantId, mem.workspaceId);
+    }
     return;
   }
 
@@ -87,7 +93,14 @@ async function seed() {
     }),
   });
 
-  console.log("Seeded tenant/workspace/admin");
+  const { entitlements } = await import("./schema/index.js");
+  await db.insert(entitlements).values({
+    id: newId("ent"),
+    tenantId,
+    workspaceId,
+  });
+
+  console.log("Seeded tenant/workspace/admin + entitlements");
   console.log("Login:", email, "/ password123");
   console.log("Workspace ID:", workspaceId);
 }

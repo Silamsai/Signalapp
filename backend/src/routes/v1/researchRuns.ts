@@ -13,6 +13,8 @@ import { enqueueResearchRun } from "../../jobs/queue.js";
 import { isExaConfigured } from "../../config/env.js";
 import { providerNotConfigured, validationError } from "../../utils/errors.js";
 import { reserveResearchBudget } from "../../services/budget.js";
+import { assertResearchAllowed } from "../../services/entitlements.js";
+import { isAccountSuppressed, isSuppressed } from "../../services/suppressions.js";
 import { newId } from "../../utils/ids.js";
 import { writeAudit } from "../../services/audit.js";
 
@@ -24,6 +26,7 @@ export async function researchRunRoutes(app: FastifyInstance) {
       const { workspaceId } = req.params as { workspaceId: string };
       const m = await loadMembership(req, workspaceId);
       requireCap(m, "research");
+      await assertResearchAllowed(m.tenantId, workspaceId);
 
       if (!isExaConfigured()) throw providerNotConfigured("exa");
 
@@ -39,6 +42,15 @@ export async function researchRunRoutes(app: FastifyInstance) {
 
       if (body.accountId) {
         await assertAccountInWorkspace(body.accountId, m.workspaceId, m.tenantId);
+        if (await isAccountSuppressed(m.workspaceId, body.accountId)) {
+          throw validationError("Cannot research a suppressed account");
+        }
+      }
+
+      // Gate 8: honor suppression in discovery query phrasing when domain-like
+      const domainHint = body.query.match(/\b([a-z0-9-]+\.[a-z]{2,})\b/i)?.[1];
+      if (domainHint && (await isSuppressed(workspaceId, domainHint))) {
+        throw validationError("Query targets a suppressed domain");
       }
 
       const db = getDb();

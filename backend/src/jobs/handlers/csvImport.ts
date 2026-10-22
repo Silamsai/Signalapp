@@ -8,6 +8,7 @@ import {
 } from "../../db/schema/index.js";
 import { parseCsv } from "../../utils/csv.js";
 import { newId } from "../../utils/ids.js";
+import { isSuppressed } from "../../services/suppressions.js";
 
 function normalizeDomain(raw?: string): string | null {
   if (!raw) return null;
@@ -55,6 +56,10 @@ export async function handleCsvImport(payload: { importJobId: string; csvText: s
     const country = row.country || null;
 
     try {
+      if (domain && (await isSuppressed(job.workspaceId, domain))) {
+        rowErrors.push(`Row ${i + 2}: domain ${domain} is suppressed (skipped)`);
+        continue;
+      }
       if (domain) {
         const dup = await db
           .select()

@@ -4,10 +4,9 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "./AppShell";
 import { LoadingState } from "../common/LoadingState";
-import { useWorkspace } from "../../hooks/useWorkspace";
+import { useWorkspace, WorkspaceProvider } from "../../hooks/useWorkspace";
 
-/** Shared shell for authenticated workspace routes (Discover, Accounts, etc.). */
-export function PortalLayout({ children }: { children: React.ReactNode }) {
+function PortalInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { workspaceId, loading, error, unauthorized, workspaceName } = useWorkspace();
 
@@ -38,4 +37,13 @@ export function PortalLayout({ children }: { children: React.ReactNode }) {
   }
 
   return <AppShell workspaceName={workspaceName}>{children}</AppShell>;
+}
+
+/** Shared shell for authenticated workspace routes — workspace loads once per session. */
+export function PortalLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <WorkspaceProvider>
+      <PortalInner>{children}</PortalInner>
+    </WorkspaceProvider>
+  );
 }

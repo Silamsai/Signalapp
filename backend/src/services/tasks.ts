@@ -3,6 +3,7 @@ import { getDb } from "../db/client.js";
 import { activities, tasks, type TaskStatus, type TaskType } from "../db/schema/index.js";
 import { validationError } from "../utils/errors.js";
 import { newId } from "../utils/ids.js";
+import { isAccountSuppressed } from "./suppressions.js";
 
 export async function createTask(input: {
   tenantId: string;
@@ -21,6 +22,11 @@ export async function createTask(input: {
   if (input.type === "follow_up" && !input.confirmFollowUp) {
     throw validationError("Proposed follow-up task requires confirmation");
   }
+
+  if (await isAccountSuppressed(input.workspaceId, input.accountId)) {
+    throw validationError("Cannot create task for suppressed account");
+  }
+
   const db = getDb();
   if (input.idempotencyKey) {
     const existing = await db
@@ -101,7 +107,8 @@ export async function updateTask(input: {
     });
   }
 
-  // Explicit: task completion does not update opportunity stage or send messages
+  // Explicit: task completion does not update opportunity stage, send messages,
+  // or create attended meetings — activity record only (gate 7).
   const [updated] = await db.select().from(tasks).where(eq(tasks.id, task.id)).limit(1);
   return updated!;
 }

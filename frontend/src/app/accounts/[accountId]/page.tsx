@@ -18,6 +18,7 @@ import { ErrorState } from "@/components/common/ErrorState";
 import { api } from "@/lib/api/client";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { HandoffPanel } from "@/components/handoffs/HandoffPanel";
 
 export default function AccountBriefPage() {
   const params = useParams();
@@ -46,6 +47,7 @@ export default function AccountBriefPage() {
   if (!brief) return <LoadingState label="Loading brief…" />;
 
   const account = brief.account as {
+    version?: number;
     name: string;
     domain: string | null;
     researchState: string;
@@ -118,15 +120,22 @@ export default function AccountBriefPage() {
       <ScoreBreakdown signals={(brief.signals as never[]) ?? []} />
       <div>
         <h2 className="mb-3 text-[16px]">Trigger evidence</h2>
-        <EvidenceList items={((brief.evidence as never[]) ?? []).slice(0, 5)} />
+        <EvidenceList
+          items={((brief.evidence as never[]) ?? []).slice(0, 5)}
+          signals={(brief.signals as never[]) ?? []}
+        />
       </div>
       {workspaceId && userId ? (
         <AcceptanceActions
           accountId={accountId}
           workspaceId={workspaceId}
           ownerUserId={userId}
+          expectedVersion={typeof account.version === "number" ? account.version : undefined}
           onDone={refresh}
         />
+      ) : null}
+      {workspaceId && userId ? (
+        <HandoffPanel accountId={accountId} workspaceId={workspaceId} ownerUserId={userId} />
       ) : null}
     </div>
   );

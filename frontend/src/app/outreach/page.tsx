@@ -44,7 +44,7 @@ export default function OutreachPage() {
         eyebrow="SDR follow-through"
         title="SDR queue"
         description="Research, call, email, and follow-up tasks. Phase 1 stores activity only — no message dispatch."
-        actions={<Badge tone="default">Campaigns · Phase 3</Badge>}
+        actions={<Badge tone="green">Campaigns available</Badge>}
       />
       <label className="block max-w-md text-xs font-semibold text-[var(--muted)]">
         Account for new task

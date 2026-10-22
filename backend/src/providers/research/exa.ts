@@ -84,7 +84,27 @@ export class ExaResearchProvider implements ResearchProvider {
     });
 
     this.lastRequestRef = `exa_${Date.now()}`;
-    const items = this.normalize(response);
+    let items = this.normalize(response);
+
+    // Soft territory: keep items mentioning region when filters provided; never drop all
+    if (filters.region?.length) {
+      const regions = filters.region.map((r) => r.toLowerCase());
+      const regional = items.filter((item) => {
+        const hay = `${item.title ?? ""} ${item.excerpt ?? ""} ${item.canonicalUrl}`.toLowerCase();
+        return regions.some((r) => hay.includes(r) || hay.includes("united kingdom") || hay.includes(".uk"));
+      });
+      if (regional.length) items = regional;
+    }
+
+    // Hard exclusions: drop URLs/domains matching offer exclusions
+    if (filters.exclude?.length) {
+      const ex = filters.exclude.map((e) => e.toLowerCase());
+      items = items.filter((item) => {
+        const hay = item.canonicalUrl.toLowerCase();
+        return !ex.some((e) => e && hay.includes(e));
+      });
+    }
+
     return {
       providerRunId: this.lastRequestRef,
       items,
@@ -105,7 +125,10 @@ export class ExaResearchProvider implements ResearchProvider {
     return { items: this.normalize(response) };
   }
 
-  async reportUsage(requestId: string): Promise<Usage> {
-    return { requestRef: requestId || this.lastRequestRef, units: 1 };
+  async reportUsage(requestId: string, reservedUnits = 1): Promise<Usage> {
+    return {
+      requestRef: requestId || this.lastRequestRef,
+      units: Math.max(1, reservedUnits),
+    };
   }
 }

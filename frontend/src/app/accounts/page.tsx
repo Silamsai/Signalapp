@@ -69,7 +69,7 @@ export default function AccountsPage() {
         }
       />
       <ImportCsvDialog workspaceId={workspaceId} onDone={refresh} />
-      <MergeCandidates candidates={merges} />
+      <MergeCandidates workspaceId={workspaceId} candidates={merges} onResolved={refresh} />
       {accounts.length ? (
         <AccountTable accounts={accounts} />
       ) : (

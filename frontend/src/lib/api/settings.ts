@@ -17,8 +17,16 @@ export function getConnections(workspaceId: string) {
   return api<{
     research: { provider: string; configured: boolean };
     usage: { quotaMonthly: number; usedMonthly: number };
-    crm: { configured: boolean; phase: number };
-    sending: { enabled: boolean; phase: number };
+    entitlements?: Record<string, unknown>;
+    crm: { configured: boolean; skipped?: boolean; note?: string; phase?: number };
+    sending: {
+      provider?: string;
+      enabled: boolean;
+      accounts?: number;
+      domains?: number;
+      phase?: number;
+    };
+    monitors?: { enabled: boolean };
   }>(`/v1/workspaces/${workspaceId}/settings/connections`);
 }
 
