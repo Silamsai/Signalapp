@@ -1,6 +1,7 @@
 import { getDb } from "../db/client.js";
 import { auditEvents } from "../db/schema/index.js";
 import { newId } from "../utils/ids.js";
+import { redactSecrets } from "../utils/secrets.js";
 
 export async function writeAudit(input: {
   tenantId: string;
@@ -12,13 +13,7 @@ export async function writeAudit(input: {
   metadata?: Record<string, unknown>;
 }) {
   const db = getDb();
-  // Never log secrets — metadata is caller-controlled; strip common key names.
-  const safe = { ...(input.metadata ?? {}) };
-  for (const k of Object.keys(safe)) {
-    if (/key|secret|password|token|authorization/i.test(k)) {
-      delete safe[k];
-    }
-  }
+  const safe = redactSecrets({ ...(input.metadata ?? {}) });
   await db.insert(auditEvents).values({
     id: newId("aud"),
     tenantId: input.tenantId,

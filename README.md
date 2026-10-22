@@ -1,35 +1,42 @@
-# Infrastructure Signal
+# SignalApp
 
-Multi-tenant account research and outreach (Phase 1 MVP).
+SignalApp helps infrastructure sales teams find accounts that are ready to engage, build a clear brief with evidence, and follow through — then monitor changes, run approved outreach sequences, and improve ranking over time.
 
-## Structure
+## What it does
 
-- `frontend/` - Next.js + React + TypeScript + Tailwind (own `node_modules` + `.env`)
-- `backend/` - Fastify + Drizzle + Neon + Exa + pg-boss (own `node_modules` + `.env` + `neon.ts`)
+- **Discover** — Spot opportunities and search for prospects that match your offer.
+- **Accounts** — Watchlist, sales acceptance, pipeline, and **Monitors** for scheduled change alerts.
+- **Qualify & hand off** — Shared briefs, acceptance, and partner handoffs (prepare → share → acknowledge / return → close).
+- **Outreach** — SDR tasks, drafts, **Campaigns** (approve then launch), and **Replies**.
+- **Reports** — Outcomes plus **Score models** to evaluate and activate ranking rules.
+- **Settings** — Offer targeting, connections & usage (kill switches), and **Sending accounts**.
 
-No root `node_modules`. Neon CLI config lives under `backend/` (`neon.ts`, `.neon`).
+CRM sync is not part of this deployment.
 
-## Setup
+## How to use it
 
-```bash
-# From backend/ - Neon link already points at project quiet-grass-15370235
-cd backend
-npm install
-# Optional: neon deploy && neon env pull --file .env
-npm run db:migrate
-npm run db:seed
-npm run dev
-npm run worker
+1. **Log in** with your workspace credentials.
+2. Configure **Settings → Offer & targeting**.
+3. Use **Discover** / imports, then open an account to research and qualify.
+4. Submit for **sales acceptance**; use **Handoff** when a partner should take over.
+5. Create **Monitors** under Accounts to watch for material changes (alerts appear in the header).
+6. Under **Settings → Sending accounts**, add a domain, verify, connect a mailbox, and enable it (simulated sending).
+7. Build a **Campaign**, save a draft, submit → approve → launch. Check **Replies** for inbound responses (or simulate one).
+8. In **Reports → Score models**, create a candidate, evaluate, activate, or roll back.
 
-cd ../frontend
-npm install
-npm run build && npm run dev
-```
+## Getting started (local)
 
-Default seed login (after `db:seed`): `admin@signal.local` / `password123`
+1. Start the API and worker from `backend/`.
+2. Start the web app from `frontend/`.
+3. Open the login page.
 
-## Phase 1 scope
+Demo login after seed:
 
-Auth, workspaces, offer/targeting, CSV import, Exa research adapter, cited evidence, qualification, sales acceptance, SDR tasks, drafts, handoff records, outcomes reporting.
+- Email: `admin@signal.local`
+- Password: `password123`
 
-Phases 2-4 (CRM, monitors, campaign sending) are not enabled.
+## Notes
+
+- Campaign email uses a **simulated** sender — nothing is delivered to a real inbox.
+- Create account / forgot password on the login screen still require a workspace admin for real access.
+- Sending and research can be paused with kill switches under Connections & usage.

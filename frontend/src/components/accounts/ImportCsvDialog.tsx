@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { getImport, startImport } from "../../lib/api/accounts";
 import { readFileAsText } from "../../lib/utils/csv";
+import { Card } from "../ui/Card";
 
 export function ImportCsvDialog({
   workspaceId,
@@ -15,10 +16,11 @@ export function ImportCsvDialog({
   const [message, setMessage] = useState<string | null>(null);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-slate-900">CSV import</h2>
-      <p className="mt-1 text-xs text-slate-600">
-        Columns: name/company, domain/website, country. Max 5000 rows. Imported accounts start unresearched.
+    <Card>
+      <h2 className="text-[15px]">CSV import</h2>
+      <p className="mt-1 text-xs text-[var(--muted)]">
+        Columns: name/company, domain/website, country. Max 5000 rows. Imported accounts start
+        unresearched.
       </p>
       <input
         type="file"
@@ -53,7 +55,11 @@ export function ImportCsvDialog({
           }
         }}
       />
-      {message ? <p className="mt-2 text-xs text-slate-700" role="status">{message}</p> : null}
-    </div>
+      {message ? (
+        <p className="mt-2 text-xs text-[var(--foreground)]" role="status">
+          {message}
+        </p>
+      ) : null}
+    </Card>
   );
 }

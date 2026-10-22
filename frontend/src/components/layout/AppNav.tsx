@@ -21,7 +21,7 @@ export function AppNav() {
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
         <div className="flex items-center gap-8">
           <Link href="/discover" className="text-lg font-semibold tracking-tight text-teal-800">
-            Infrastructure Signal
+            SignalApp
           </Link>
           <nav aria-label="Primary" className="flex flex-wrap gap-1">
             {items.map((item) => {

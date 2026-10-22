@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { FastifyRequest } from "fastify";
 import { getDb } from "../db/client.js";
 import { memberships, workspaces, type MembershipRole } from "../db/schema/index.js";
@@ -35,6 +35,7 @@ export async function loadMembership(req: FastifyRequest, workspaceId: string): 
         eq(memberships.workspaceId, workspaceId),
         eq(memberships.userId, req.actor.userId),
         eq(workspaces.id, workspaceId),
+        isNull(memberships.revokedAt),
       ),
     )
     .limit(1);

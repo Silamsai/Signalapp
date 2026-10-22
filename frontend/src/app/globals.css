@@ -1,25 +1,342 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f4f7f6;
-  --foreground: #0f172a;
+  --background: #f5f7fa;
+  --foreground: #19232e;
+  --muted: #667280;
+  --line: #e1e6eb;
   --surface: #ffffff;
-  --accent: #0f766e;
-  --accent-soft: #ccfbf1;
+  --red: #d92532;
+  --red-hover: #b71e2a;
+  --red-tint: #fcecee;
+  --red-active: #bb2130;
+  --navy: #172c40;
+  --badge-default-bg: #edf2f6;
+  --badge-default-fg: #475968;
+  --badge-green-bg: #e7f4ed;
+  --badge-green-fg: #23774e;
+  --badge-amber-bg: #fff3da;
+  --badge-amber-fg: #835c12;
+  --badge-blue-bg: #eaf0fb;
+  --badge-blue-fg: #315da2;
+  --demo-bar: #edf2f7;
+  --input-border: #ccd5df;
+  --table-head: #fafbfd;
+  --chip-bg: #f4f6f9;
+  --sidebar-width: 248px;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "Segoe UI", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-surface: var(--surface);
+  --color-red: var(--red);
+  --color-red-hover: var(--red-hover);
+  --color-red-tint: var(--red-tint);
+  --color-navy: var(--navy);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
-  background:
-    radial-gradient(1200px 600px at 10% -10%, #d8efe9 0%, transparent 55%),
-    radial-gradient(900px 500px at 100% 0%, #e8eef5 0%, transparent 50%),
-    var(--background);
+  background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+  font-size: 16px;
   min-height: 100vh;
+  margin: 0;
 }
+
+h1 {
+  font-size: 1.875rem;
+  font-weight: 650;
+  letter-spacing: -0.8px;
+  line-height: 1.2;
+  margin: 0;
+}
+
+h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  margin: 0;
+}
+
+h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/* ——— Auth (login / create account) ——— */
+.auth-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px 20px;
+  background: #eef1f5;
+}
+
+.auth-shell__form {
+  width: 100%;
+  max-width: 400px;
+  padding: 36px 32px 40px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(23, 44, 64, 0.04);
+}
+
+.auth-shell__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.auth-shell__mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 5px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.auth-shell__name {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+}
+
+.auth-form__header {
+  margin-bottom: 28px;
+}
+
+.auth-form__title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: var(--foreground);
+}
+
+.auth-form__subtitle {
+  margin: 8px 0 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.auth-tabs__btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 10px 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: center;
+}
+
+.auth-tabs__btn:hover {
+  color: var(--foreground);
+}
+
+.auth-tabs__btn.is-active {
+  color: var(--foreground);
+  border-bottom-color: var(--red);
+}
+
+.auth-form__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-field {
+  display: block;
+}
+
+.auth-field__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.auth-field__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4a5560;
+}
+
+.auth-field__row .auth-field__label {
+  margin-bottom: 0;
+}
+
+.auth-field__control {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.auth-field__input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid #c8d0d8;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 44px;
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.auth-field__input::placeholder {
+  color: #9aa3ad;
+}
+
+.auth-field__input:hover {
+  border-color: #b0bac4;
+}
+
+.auth-field__input:focus {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(217, 37, 50, 0.12);
+}
+
+.auth-field__input--icon {
+  padding-right: 44px;
+}
+
+.auth-field__eye {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #7a8692;
+  cursor: pointer;
+}
+
+.auth-field__eye:hover {
+  color: var(--foreground);
+}
+
+.auth-link {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--red-active);
+  cursor: pointer;
+}
+
+.auth-link:hover {
+  text-decoration: underline;
+}
+
+.auth-msg {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #f7f9fb;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--foreground);
+}
+
+.auth-msg--error {
+  border-color: #f0c4c7;
+  background: #fdf4f4;
+  color: var(--red-active);
+}
+
+.auth-submit {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 44px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--red);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: var(--red-hover);
+}
+
+.auth-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.auth-form__footer {
+  margin: 20px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+

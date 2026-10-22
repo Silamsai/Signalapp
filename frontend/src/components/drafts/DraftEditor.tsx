@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { api } from "../../lib/api/client";
+import { Button } from "../ui/Button";
+import { Card } from "../ui/Card";
 
 type Draft = {
   id: string;
@@ -25,24 +27,31 @@ export function DraftEditor({
   const [msg, setMsg] = useState<string | null>(null);
 
   return (
-    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+    <Card className="space-y-3">
       {draft.staleWarning ? (
-        <p className="text-sm text-amber-800">Stale source warning — review citations before use.</p>
+        <p className="text-sm text-[var(--badge-amber-fg)]">
+          Stale source warning — review citations before use.
+        </p>
       ) : null}
-      <input
-        className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-        value={subject}
-        onChange={(e) => setSubject(e.target.value)}
-      />
-      <textarea
-        className="w-full rounded border border-slate-300 px-2 py-1.5 font-mono text-sm"
-        rows={10}
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-      />
-      <button
-        type="button"
-        className="rounded bg-teal-800 px-3 py-1.5 text-sm text-white"
+      <label className="block text-xs font-semibold text-[var(--muted)]">
+        Subject
+        <input
+          className="mt-1 w-full rounded-[7px] border border-[var(--input-border)] px-2 py-2 text-sm font-normal text-[var(--foreground)]"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+        />
+      </label>
+      <label className="block text-xs font-semibold text-[var(--muted)]">
+        Message draft
+        <textarea
+          className="mt-1 w-full rounded-[7px] border border-[var(--input-border)] px-2 py-2 font-mono text-sm font-normal text-[var(--foreground)]"
+          rows={10}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+        />
+      </label>
+      <Button
+        variant="primary"
         onClick={async () => {
           await api(`/v1/drafts/${draft.id}`, {
             method: "PATCH",
@@ -53,8 +62,8 @@ export function DraftEditor({
         }}
       >
         Save draft
-      </button>
-      {msg ? <p className="text-xs text-slate-600">{msg}</p> : null}
-    </div>
+      </Button>
+      {msg ? <p className="text-xs text-[var(--muted)]">{msg}</p> : null}
+    </Card>
   );
 }

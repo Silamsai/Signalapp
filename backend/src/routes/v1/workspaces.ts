@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "../../db/client.js";
 import { memberships, workspaces } from "../../db/schema/index.js";
 import { authenticateRequired } from "../../middleware/authenticate.js";
@@ -12,11 +12,14 @@ export async function workspaceRoutes(app: FastifyInstance) {
         id: workspaces.id,
         name: workspaces.name,
         tenantId: workspaces.tenantId,
+        currency: workspaces.currency,
         role: memberships.role,
       })
       .from(memberships)
       .innerJoin(workspaces, eq(memberships.workspaceId, workspaces.id))
-      .where(eq(memberships.userId, req.actor!.userId));
+      .where(
+        and(eq(memberships.userId, req.actor!.userId), isNull(memberships.revokedAt)),
+      );
     return { workspaces: rows };
   });
 }

@@ -42,5 +42,5 @@ export interface ResearchProvider {
   ): Promise<NormalizedDiscovery>;
   retrieve(sourceReferences: string[]): Promise<NormalizedSources>;
   normalize(raw: unknown): NormalizedEvidenceItem[];
-  reportUsage(requestId: string): Promise<Usage>;
+  reportUsage(requestId: string, reservedUnits?: number): Promise<Usage>;
 }

@@ -48,3 +48,14 @@ export function listMergeCandidates(workspaceId: string) {
     `/v1/workspaces/${workspaceId}/merge-candidates`,
   );
 }
+
+export function resolveMergeCandidate(
+  workspaceId: string,
+  candidateId: string,
+  body: { action: "merge" | "keep_separate" | "reject"; keepAccountId?: string },
+) {
+  return api<{ status: string }>(
+    `/v1/workspaces/${workspaceId}/merge-candidates/${candidateId}/resolve`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}

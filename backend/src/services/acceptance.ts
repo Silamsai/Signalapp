@@ -5,7 +5,6 @@ import {
   accounts,
   evidence,
   qualifications,
-  suppressions,
   type AcceptanceState,
 } from "../db/schema/index.js";
 import { conflict, forbidden, validationError } from "../utils/errors.js";
@@ -13,6 +12,7 @@ import { newId } from "../utils/ids.js";
 import { writeAudit } from "./audit.js";
 import type { MembershipRole } from "../db/schema/identity.js";
 import { hasCapability } from "../auth/permissions.js";
+import { isSuppressed } from "./suppressions.js";
 
 const reviewerTransitions: Record<string, AcceptanceState[]> = {
   ready_for_review: ["accepted", "needs_research", "rejected"],
@@ -36,6 +36,8 @@ export async function transitionAcceptance(input: {
   nextAction?: string;
   ownerUserId?: string;
   briefVersion?: string;
+  /** Optimistic concurrency — must match account.version (gate 6) */
+  expectedVersion?: number;
 }) {
   const db = getDb();
   const [account] = await db
@@ -50,6 +52,16 @@ export async function transitionAcceptance(input: {
     )
     .limit(1);
   if (!account) throw validationError("Account not found");
+
+  if (
+    input.expectedVersion !== undefined &&
+    account.version !== input.expectedVersion
+  ) {
+    throw conflict("Account version mismatch — reload and retry", {
+      currentVersion: account.version,
+      acceptanceState: account.acceptanceState,
+    });
+  }
 
   const fromState = account.acceptanceState as AcceptanceState;
 
@@ -79,17 +91,7 @@ export async function transitionAcceptance(input: {
     if (!input.ownerUserId) throw validationError("Acceptance requires accountable owner");
     if (!input.nextAction) throw validationError("Acceptance requires next action");
 
-    const suppressed = await db
-      .select()
-      .from(suppressions)
-      .where(
-        and(
-          eq(suppressions.workspaceId, input.workspaceId),
-          eq(suppressions.addressOrDomain, account.domain ?? "__none__"),
-        ),
-      )
-      .limit(1);
-    if (suppressed[0]) {
+    if (await isSuppressed(input.workspaceId, account.domain)) {
       throw validationError("Account domain is suppressed — cannot accept for contact");
     }
   } else if (["needs_research", "rejected"].includes(input.toState)) {
@@ -111,6 +113,28 @@ export async function transitionAcceptance(input: {
     }
   }
 
+  const newVersion = account.version + 1;
+  const updated = await db
+    .update(accounts)
+    .set({
+      acceptanceState: input.toState,
+      ownerUserId: input.ownerUserId ?? account.ownerUserId,
+      version: newVersion,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(accounts.id, input.accountId),
+        eq(accounts.version, account.version),
+        eq(accounts.acceptanceState, fromState),
+      ),
+    )
+    .returning({ id: accounts.id });
+
+  if (!updated[0]) {
+    throw conflict("Concurrent acceptance update — reload and retry");
+  }
+
   await db.insert(acceptanceDecisions).values({
     id: newId("acd"),
     tenantId: input.tenantId,
@@ -126,15 +150,6 @@ export async function transitionAcceptance(input: {
     actorUserId: input.actorUserId,
   });
 
-  await db
-    .update(accounts)
-    .set({
-      acceptanceState: input.toState,
-      ownerUserId: input.ownerUserId ?? account.ownerUserId,
-      updatedAt: new Date(),
-    })
-    .where(eq(accounts.id, input.accountId));
-
   await writeAudit({
     tenantId: input.tenantId,
     workspaceId: input.workspaceId,
@@ -142,8 +157,8 @@ export async function transitionAcceptance(input: {
     action: "acceptance.transition",
     entityType: "account",
     entityId: input.accountId,
-    metadata: { fromState, toState: input.toState },
+    metadata: { fromState, toState: input.toState, version: newVersion },
   });
 
-  return { fromState, toState: input.toState };
+  return { fromState, toState: input.toState, version: newVersion };
 }

@@ -24,6 +24,17 @@ const FIELD_KEYS = [
   "deployment_model",
 ] as const;
 
+/** Fields whose change after acceptance is always material (gate 6). */
+const MATERIAL_FIELDS = new Set<string>([
+  "workload_use_case",
+  "buying_timeframe",
+  "budget_status",
+  "procurement_route",
+  "indicative_scope",
+  "stakeholders",
+  "refresh_driver",
+]);
+
 export async function getOrCreateQualification(
   tenantId: string,
   workspaceId: string,
@@ -45,6 +56,10 @@ export async function getOrCreateQualification(
   });
   const [row] = await db.select().from(qualifications).where(eq(qualifications.id, id)).limit(1);
   return row!;
+}
+
+function normalizeFactValue(v: string | null | undefined): string {
+  return (v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 export async function updateQualification(input: {
@@ -74,8 +89,16 @@ export async function updateQualification(input: {
   const [account] = await db
     .select()
     .from(accounts)
-    .where(eq(accounts.id, input.accountId))
+    .where(
+      and(
+        eq(accounts.id, input.accountId),
+        eq(accounts.workspaceId, input.workspaceId),
+      ),
+    )
     .limit(1);
+  if (!account) throw validationError("Account not found");
+
+  let materialChange = Boolean(input.rationale && input.rationale !== qual.rationale);
 
   if (input.facts) {
     for (const fact of input.facts) {
@@ -104,6 +127,17 @@ export async function updateQualification(input: {
           ),
         )
         .limit(1);
+
+      const current = old.find((f) => !f.supersededBy) ?? old[0];
+      if (
+        MATERIAL_FIELDS.has(fact.fieldKey) &&
+        normalizeFactValue(current?.value) !== normalizeFactValue(fact.value)
+      ) {
+        materialChange = true;
+      }
+      if (fact.basis === "unknown") {
+        materialChange = true;
+      }
 
       const factId = newId("qf");
       await db.insert(qualificationFacts).values({
@@ -137,17 +171,26 @@ export async function updateQualification(input: {
       rationale: input.rationale ?? qual.rationale,
       updatedAt: new Date(),
     })
-    .where(eq(qualifications.id, qual.id));
+    .where(and(eq(qualifications.id, qual.id), eq(qualifications.version, qual.version)));
 
   // Material change after acceptance → invalidate approval (require re-review)
-  if (account?.acceptanceState === "accepted") {
-    await db
+  // Also bump account.version so concurrent accept cannot silently overwrite.
+  if (account.acceptanceState === "accepted" && materialChange) {
+    const bumped = await db
       .update(accounts)
-      .set({ acceptanceState: "ready_for_review", updatedAt: new Date() })
-      .where(eq(accounts.id, input.accountId));
+      .set({
+        acceptanceState: "ready_for_review",
+        version: account.version + 1,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(accounts.id, input.accountId), eq(accounts.version, account.version)))
+      .returning({ id: accounts.id });
+    if (!bumped[0]) {
+      throw conflict("Concurrent account update while invalidating acceptance — reload and retry");
+    }
   }
 
-  return { version: newVersion };
+  return { version: newVersion, reopenedForReview: account.acceptanceState === "accepted" && materialChange };
 }
 
-export { FIELD_KEYS };
+export { FIELD_KEYS, MATERIAL_FIELDS };

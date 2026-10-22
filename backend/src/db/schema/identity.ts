@@ -23,6 +23,8 @@ export const workspaces = pgTable(
       .notNull()
       .references(() => tenants.id),
     name: text("name").notNull(),
+    /** ISO 4217 — disclosed on outcomes reports (gate 11) */
+    currency: text("currency").notNull().default("GBP"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("workspaces_tenant_idx").on(t.tenantId)],
@@ -65,6 +67,8 @@ export const memberships = pgTable(
       .notNull()
       .references(() => users.id),
     role: text("role").notNull().$type<MembershipRole>(),
+    /** When set, user loses subsequent workspace access (gate 2) */
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

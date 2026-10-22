@@ -1,9 +1,10 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "../../db/client.js";
 import { accounts, offers, providerUsage, researchRuns } from "../../db/schema/index.js";
 import { getResearchProvider } from "../../providers/research/index.js";
-import { reconcileUsage } from "../../services/budget.js";
+import { reconcileUsage, refundResearchBudget } from "../../services/budget.js";
 import { persistNormalizedEvidence } from "../../services/evidence.js";
+import { isSuppressed } from "../../services/suppressions.js";
 import { newId } from "../../utils/ids.js";
 
 export async function handleResearchRun(payload: { researchRunId: string }) {
@@ -16,12 +17,59 @@ export async function handleResearchRun(payload: { researchRunId: string }) {
   if (!run) return;
   if (run.status === "completed" || run.status === "cancelled") return;
 
-  await db
+  // Idempotent retry: if usage already recorded, do not re-call provider or re-charge (gate 10)
+  const [priorUsage] = await db
+    .select()
+    .from(providerUsage)
+    .where(eq(providerUsage.researchRunId, run.id))
+    .limit(1);
+  if (priorUsage) {
+    await db
+      .update(researchRuns)
+      .set({
+        status: "completed",
+        progressPct: 100,
+        budgetActual: priorUsage.units,
+        completedAt: run.completedAt ?? new Date(),
+      })
+      .where(eq(researchRuns.id, run.id));
+    return;
+  }
+
+  // Claim the run — only one worker proceeds if status was queued/failed
+  const claimed = await db
     .update(researchRuns)
-    .set({ status: "running", startedAt: new Date(), progressPct: 10 })
-    .where(eq(researchRuns.id, run.id));
+    .set({ status: "running", startedAt: new Date(), progressPct: 10, errorCode: null, errorMessage: null })
+    .where(
+      and(
+        eq(researchRuns.id, run.id),
+        // allow re-entry from failed only after refund path; still guarded by priorUsage
+        eq(researchRuns.status, run.status),
+      ),
+    )
+    .returning({ id: researchRuns.id });
+  if (!claimed[0]) return;
 
   if (run.accountId) {
+    const [acct] = await db.select().from(accounts).where(eq(accounts.id, run.accountId)).limit(1);
+    if (acct?.domain && (await isSuppressed(run.workspaceId, acct.domain))) {
+      await refundResearchBudget(run.tenantId, run.budgetReserved);
+      await db
+        .update(researchRuns)
+        .set({
+          status: "cancelled",
+          errorCode: "suppressed",
+          errorMessage: "Account domain is suppressed",
+          completedAt: new Date(),
+          budgetActual: 0,
+        })
+        .where(eq(researchRuns.id, run.id));
+      await db
+        .update(accounts)
+        .set({ researchState: "unresearched", updatedAt: new Date() })
+        .where(eq(accounts.id, run.accountId));
+      return;
+    }
     await db
       .update(accounts)
       .set({ researchState: "researching", updatedAt: new Date() })
@@ -45,7 +93,8 @@ export async function handleResearchRun(payload: { researchRunId: string }) {
     await db.update(researchRuns).set({ progressPct: 40 }).where(eq(researchRuns.id, run.id));
 
     const discovery = await provider.discover(run.query, filters, run.budgetReserved);
-    const usage = await provider.reportUsage(discovery.providerRunId);
+    // Charge actual units equal to reserved product budget for this job (no silent under-report)
+    const usage = await provider.reportUsage(discovery.providerRunId, run.budgetReserved);
 
     await db.insert(providerUsage).values({
       id: newId("pug"),
@@ -101,6 +150,9 @@ export async function handleResearchRun(payload: { researchRunId: string }) {
         ? String((err as { code: string }).code)
         : "provider_error";
 
+    // Refund reserved units so retries do not double-charge (gate 10)
+    await refundResearchBudget(run.tenantId, run.budgetReserved);
+
     await db
       .update(researchRuns)
       .set({
@@ -108,6 +160,7 @@ export async function handleResearchRun(payload: { researchRunId: string }) {
         errorCode: code,
         errorMessage: message.slice(0, 500),
         completedAt: new Date(),
+        budgetActual: 0,
       })
       .where(eq(researchRuns.id, run.id));
 
@@ -118,7 +171,6 @@ export async function handleResearchRun(payload: { researchRunId: string }) {
         .where(eq(accounts.id, run.accountId));
     }
 
-    // Do not double-charge on failure after reservation — leave reserved as spent attempt
     throw err;
   }
 }

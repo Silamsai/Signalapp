@@ -10,6 +10,54 @@ function fingerprint(url: string, excerpt: string): string {
   return createHash("sha256").update(`${url}|${excerpt}`).digest("hex").slice(0, 32);
 }
 
+function normalizeFact(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
+/** Detect contradictory observed facts for the same signal kind on an account. */
+async function flagContradictions(
+  workspaceId: string,
+  accountId: string,
+  kind: string,
+  observedFact: string,
+  newSignalId: string,
+) {
+  const db = getDb();
+  const norm = normalizeFact(observedFact);
+  if (!norm) return;
+
+  const existing = await db
+    .select()
+    .from(signals)
+    .where(
+      and(
+        eq(signals.workspaceId, workspaceId),
+        eq(signals.accountId, accountId),
+        eq(signals.kind, kind),
+      ),
+    );
+
+  for (const s of existing) {
+    if (s.id === newSignalId || !s.observedFact) continue;
+    const other = normalizeFact(s.observedFact);
+    if (!other || other === norm) continue;
+    // Different non-empty facts for same kind → flag both
+    await db
+      .update(signals)
+      .set({ unknownNote: "contradiction" })
+      .where(eq(signals.id, s.id));
+    await db
+      .update(signals)
+      .set({ unknownNote: "contradiction" })
+      .where(eq(signals.id, newSignalId));
+  }
+}
+
 export async function persistNormalizedEvidence(input: {
   tenantId: string;
   workspaceId: string;
@@ -20,6 +68,16 @@ export async function persistNormalizedEvidence(input: {
   const db = getDb();
   let bestScore = 0;
   const explanations: string[] = [];
+
+  // Skip if this run already persisted evidence (retry safety — gate 10)
+  const prior = await db
+    .select({ id: evidence.id })
+    .from(evidence)
+    .where(eq(evidence.researchRunId, input.researchRunId))
+    .limit(1);
+  if (prior[0]) {
+    return { fitScore: 0, explanations: ["evidence_already_persisted"], skippedDuplicateRun: true };
+  }
 
   for (const item of input.items) {
     const fp = fingerprint(item.canonicalUrl, item.excerpt ?? "");
@@ -49,6 +107,11 @@ export async function persistNormalizedEvidence(input: {
     } else if (existing[0]?.contentFingerprint === fp) {
       // Deduplicated syndicated/repeated evidence
       continue;
+    } else {
+      await db
+        .update(sources)
+        .set({ contentFingerprint: fp, title: item.title ?? existing[0]?.title })
+        .where(eq(sources.id, sourceId));
     }
 
     const evidenceId = newId("ev");
@@ -82,21 +145,42 @@ export async function persistNormalizedEvidence(input: {
     bestScore = Math.max(bestScore, score.total);
     explanations.push(...score.explanation);
 
+    const kind = item.signalKind ?? "infrastructure";
+    const signalId = newId("sig");
+    const unknownNote = item.eventDate ? null : "event_date_unknown";
     await db.insert(signals).values({
-      id: newId("sig"),
+      id: signalId,
       tenantId: input.tenantId,
       workspaceId: input.workspaceId,
       accountId: input.accountId,
       evidenceId,
-      kind: item.signalKind ?? "infrastructure",
+      kind,
       observedFact: item.excerpt,
       hypothesis: null,
-      unknownNote: item.eventDate ? null : "event_date_unknown",
+      unknownNote,
       fitComponent: score.fit,
       recencyComponent: score.recency,
       qualityComponent: score.quality,
     });
+
+    if (item.excerpt) {
+      await flagContradictions(
+        input.workspaceId,
+        input.accountId,
+        kind,
+        item.excerpt,
+        signalId,
+      );
+    }
   }
 
-  return { fitScore: bestScore, explanations };
+  return { fitScore: bestScore, explanations, skippedDuplicateRun: false };
+}
+
+export async function listOpenContradictionFlags(accountId: string) {
+  const db = getDb();
+  return db
+    .select()
+    .from(signals)
+    .where(and(eq(signals.accountId, accountId), eq(signals.unknownNote, "contradiction")));
 }

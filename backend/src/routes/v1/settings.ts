@@ -9,6 +9,8 @@ import { getUsage } from "../../services/budget.js";
 import { researchProviderStatus } from "../../providers/research/index.js";
 import { newId } from "../../utils/ids.js";
 import { writeAudit } from "../../services/audit.js";
+import { ensureEntitlements } from "../../services/entitlements.js";
+import { listSendingAccounts } from "../../services/campaigns.js";
 
 export async function settingsRoutes(app: FastifyInstance) {
   app.get(
@@ -143,11 +145,25 @@ export async function settingsRoutes(app: FastifyInstance) {
       const { workspaceId } = req.params as { workspaceId: string };
       const m = await loadMembership(req, workspaceId);
       const usage = await getUsage(m.tenantId);
+      const entitlements = await ensureEntitlements(m.tenantId, workspaceId);
+      const sending = await listSendingAccounts(workspaceId);
+      const enabledMailbox = sending.accounts.some((a) => a.enabled);
       return {
         research: researchProviderStatus(),
         usage,
-        crm: { configured: false, phase: 2 },
-        sending: { enabled: false, phase: 3 },
+        entitlements,
+        crm: {
+          configured: false,
+          skipped: true,
+          note: "CRM sync is not enabled in this deployment",
+        },
+        sending: {
+          provider: "simulated",
+          enabled: enabledMailbox && entitlements.sendingEnabled && !entitlements.sendingKillSwitch,
+          accounts: sending.accounts.length,
+          domains: sending.domains.length,
+        },
+        monitors: { enabled: entitlements.monitorsEnabled },
       };
     },
   );

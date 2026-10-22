@@ -32,6 +32,7 @@ export async function acceptanceRoutes(app: FastifyInstance) {
           nextAction: z.string().optional(),
           ownerUserId: z.string().optional(),
           briefVersion: z.string().optional(),
+          expectedVersion: z.number().int().optional(),
         })
         .parse(req.body);
 
@@ -47,6 +48,7 @@ export async function acceptanceRoutes(app: FastifyInstance) {
         nextAction: body.nextAction,
         ownerUserId: body.ownerUserId,
         briefVersion: body.briefVersion,
+        expectedVersion: body.expectedVersion,
       });
       return result;
     },

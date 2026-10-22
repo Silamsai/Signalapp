@@ -20,6 +20,8 @@ import {
 } from "../../middleware/requireMembership.js";
 import { escapeCsvCell } from "../../utils/csv.js";
 import { newId } from "../../utils/ids.js";
+import { filterUnsuppressedAccounts, isSuppressed } from "../../services/suppressions.js";
+import { resolveMergeCandidate } from "../../services/merges.js";
 
 export async function accountRoutes(app: FastifyInstance) {
   app.get(
@@ -52,6 +54,10 @@ export async function accountRoutes(app: FastifyInstance) {
           country: z.string().optional(),
         })
         .parse(req.body);
+      if (body.domain && (await isSuppressed(workspaceId, body.domain))) {
+        const { validationError } = await import("../../utils/errors.js");
+        throw validationError("Domain is suppressed");
+      }
       const db = getDb();
       const id = newId("acc");
       await db.insert(accounts).values({
@@ -83,6 +89,33 @@ export async function accountRoutes(app: FastifyInstance) {
           and(eq(mergeCandidates.workspaceId, workspaceId), eq(mergeCandidates.status, "pending")),
         );
       return { candidates: rows };
+    },
+  );
+
+  app.post(
+    "/v1/workspaces/:workspaceId/merge-candidates/:candidateId/resolve",
+    { preHandler: authenticateRequired },
+    async (req) => {
+      const { workspaceId, candidateId } = req.params as {
+        workspaceId: string;
+        candidateId: string;
+      };
+      const m = await loadMembership(req, workspaceId);
+      requireCap(m, "import");
+      const body = z
+        .object({
+          action: z.enum(["merge", "keep_separate", "reject"]),
+          keepAccountId: z.string().optional(),
+        })
+        .parse(req.body);
+      return resolveMergeCandidate({
+        tenantId: m.tenantId,
+        workspaceId,
+        candidateId,
+        action: body.action,
+        keepAccountId: body.keepAccountId,
+        actorUserId: req.actor!.userId,
+      });
     },
   );
 
@@ -149,10 +182,12 @@ export async function accountRoutes(app: FastifyInstance) {
       await loadMembership(req, workspaceId);
       const db = getDb();
       const rows = await db.select().from(accounts).where(eq(accounts.workspaceId, workspaceId));
+      // Gate 8: suppression honored in exports
+      const visible = await filterUnsuppressedAccounts(workspaceId, rows);
       const header = ["name", "domain", "country", "research_state", "acceptance_state", "fit_score"];
       const lines = [
         header.join(","),
-        ...rows.map((r) =>
+        ...visible.map((r) =>
           [
             escapeCsvCell(r.name),
             escapeCsvCell(r.domain),
