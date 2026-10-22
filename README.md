@@ -1,42 +1,47 @@
 # SignalApp
 
-SignalApp helps infrastructure sales teams find accounts that are ready to engage, build a clear brief with evidence, and follow through — then monitor changes, run approved outreach sequences, and improve ranking over time.
+SignalApp helps infrastructure sales teams find accounts showing buying signals, build an evidence-backed qualification brief, get it accepted by sales, and follow through with SDR tasks and partner handoffs. This is **Phase 1** of the Infrastructure Signal specification. SignalApp never sends emails or makes calls.
 
-## What it does
+## Roles
 
-- **Discover** — Spot opportunities and search for prospects that match your offer.
-- **Accounts** — Watchlist, sales acceptance, pipeline, and **Monitors** for scheduled change alerts.
-- **Qualify & hand off** — Shared briefs, acceptance, and partner handoffs (prepare → share → acknowledge / return → close).
-- **Outreach** — SDR tasks, drafts, **Campaigns** (approve then launch), and **Replies**.
-- **Reports** — Outcomes plus **Score models** to evaluate and activate ranking rules.
-- **Settings** — Offer targeting, connections & usage (kill switches), and **Sending accounts**.
+| Role | What they see |
+|---|---|
+| Tenant admin | Everything, plus members, settings, suppression list and research kill switch |
+| Researcher | Discover, accounts, research, evidence review, qualification, drafts |
+| SDR | Their own accounts and task queue, drafts, outcomes |
+| Sales reviewer | Sales acceptance, owners, partner handoffs, reports |
+| Partner | Only handoffs shared with them, only the permitted fields |
+| Analyst | Reports only |
 
-CRM sync is not part of this deployment.
+## Run locally
 
-## How to use it
+```bash
+cd backend
+npm install
+npm run db:migrate     # applies migrations (0003 drops unused feature tables, 0004 adds review/quota/merge fields)
+SEED_ADMIN_EMAIL=you@company.com SEED_ADMIN_PASSWORD='at least 12 characters' npm run db:seed
+npm run dev            # API on :4000
+npm run worker         # research + import jobs (separate terminal)
 
-1. **Log in** with your workspace credentials.
-2. Configure **Settings → Offer & targeting**.
-3. Use **Discover** / imports, then open an account to research and qualify.
-4. Submit for **sales acceptance**; use **Handoff** when a partner should take over.
-5. Create **Monitors** under Accounts to watch for material changes (alerts appear in the header).
-6. Under **Settings → Sending accounts**, add a domain, verify, connect a mailbox, and enable it (simulated sending).
-7. Build a **Campaign**, save a draft, submit → approve → launch. Check **Replies** for inbound responses (or simulate one).
-8. In **Reports → Score models**, create a candidate, evaluate, activate, or roll back.
+cd ../frontend
+npm install
+npm run dev            # web on :3000
+```
 
-## Getting started (local)
+The seed creates your company (tenant), its first workspace and its first admin from the values you pass. No login details are stored in the code. Sign in as that admin and add everyone else under **Settings → Members**.
 
-1. Start the API and worker from `backend/`.
-2. Start the web app from `frontend/`.
-3. Open the login page.
+Required backend env: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET` (16+ chars), `EXA_API_KEY`, `FRONTEND_ORIGIN`. Set `NODE_ENV=production` in production for secure cookies.
 
-Demo login after seed:
+## Tests
 
-- Email: `admin@signal.local`
-- Password: `password123`
+```bash
+cd backend
+npm test                                              # unit tests
+TEST_DATABASE_URL=<disposable db url> npm run test:gates   # the 12 Phase 1 release gates
+```
 
-## Notes
+The gate tests refuse to run against the `DATABASE_URL` in `.env`. Use a throwaway Neon branch.
 
-- Campaign email uses a **simulated** sender — nothing is delivered to a real inbox.
-- Create account / forgot password on the login screen still require a workspace admin for real access.
-- Sending and research can be paused with kill switches under Connections & usage.
+## Not in Phase 1
+
+CRM sync, monitors, email campaigns/sending and score-model optimization (spec Phases 2–4).

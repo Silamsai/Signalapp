@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../lib/api/client";
+import type { EvidenceItem, Fact } from "../../lib/api/accounts";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { Field, FormError, FormNotice, humanize, inputClass } from "../ui/Field";
 
-const FIELDS = [
+export const FIELD_KEYS = [
   "workload_use_case",
   "current_environment",
   "refresh_driver",
@@ -13,111 +15,209 @@ const FIELDS = [
   "stakeholders",
   "procurement_route",
   "incumbent_partner",
+  "indicative_scope",
+  "budget_status",
+  "location",
+  "incumbent_hardware",
+  "deployment_model",
 ];
+
+export const BASIS_LABELS: Record<string, string> = {
+  unknown: "Unknown",
+  research_hypothesis: "Research hypothesis",
+  source_observed: "Observed in a source",
+  prospect_confirmed: "Confirmed by the prospect",
+};
 
 export function FactEditor({
   accountId,
   workspaceId,
   version,
   rationale,
+  facts,
+  evidence,
   onSaved,
 }: {
   accountId: string;
   workspaceId: string;
   version: number;
-  rationale?: string | null;
+  rationale: string | null;
+  facts: Fact[];
+  evidence: EvidenceItem[];
   onSaved: () => void;
 }) {
-  const [fieldKey, setFieldKey] = useState(FIELDS[0]);
+  const [fieldKey, setFieldKey] = useState(FIELD_KEYS[0]!);
   const [value, setValue] = useState("");
   const [basis, setBasis] = useState("unknown");
-  const [note, setNote] = useState(rationale ?? "");
+  const [evidenceIds, setEvidenceIds] = useState<string[]>([]);
+  const [confirmationNote, setConfirmationNote] = useState("");
+  const [rationaleText, setRationaleText] = useState(rationale ?? "");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Load the current value of the chosen field for editing
+  useEffect(() => {
+    const current = facts.find((f) => f.fieldKey === fieldKey);
+    setValue(current?.value ?? "");
+    setBasis(current?.basis ?? "unknown");
+    setEvidenceIds(current ? (JSON.parse(current.evidenceIdsJson) as string[]) : []);
+    setConfirmationNote("");
+  }, [fieldKey, facts]);
+
+  useEffect(() => setRationaleText(rationale ?? ""), [rationale]);
+
+  async function save(body: Record<string, unknown>, done: string) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await api<{ version: number; reopenedForReview: boolean }>(
+        `/v1/accounts/${accountId}/qualification?workspaceId=${workspaceId}`,
+        { method: "PATCH", body: JSON.stringify({ expectedVersion: version, ...body }) },
+      );
+      setNotice(
+        res.reopenedForReview
+          ? `${done} This was a material change, so the accepted brief has been sent back for re-review.`
+          : done,
+      );
+      onSaved();
+    } catch (err) {
+      setError(
+        err instanceof Error && /version|concurrent/i.test(err.message)
+          ? "Someone else saved this brief first. The latest version has been loaded — check it and try again."
+          : err instanceof Error
+            ? err.message
+            : "Save failed",
+      );
+      if (err instanceof Error && /version|concurrent/i.test(err.message)) onSaved();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <Card>
-      <form
-        className="space-y-3"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError(null);
-          try {
-            await api(`/v1/accounts/${accountId}/qualification?workspaceId=${workspaceId}`, {
-              method: "PATCH",
-              body: JSON.stringify({
-                expectedVersion: version,
-                rationale: note,
+    <div className="space-y-4">
+      <Card>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save({ rationale: rationaleText }, "Rationale saved.");
+          }}
+        >
+          <h3 className="text-[15px]">Qualification rationale</h3>
+          <Field label="Why this account is worth sales time">
+            <textarea className={inputClass} rows={3} value={rationaleText} onChange={(e) => setRationaleText(e.target.value)} />
+          </Field>
+          <Button type="submit" disabled={busy || !rationaleText.trim()}>
+            Save rationale
+          </Button>
+        </form>
+      </Card>
+
+      <Card>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save(
+              {
                 facts: [
                   {
                     fieldKey,
-                    value: value || null,
+                    value: basis === "unknown" ? null : value.trim() || null,
                     basis,
-                    confirmationNote: basis === "prospect_confirmed" ? note : undefined,
+                    evidenceIds: basis === "source_observed" ? evidenceIds : undefined,
+                    confirmationNote: basis === "prospect_confirmed" ? confirmationNote : undefined,
                   },
                 ],
-              }),
-            });
-            onSaved();
-          } catch (err) {
-            setError(err instanceof Error ? err.message : "Save failed");
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <h3 className="text-[15px]">Server opportunity qualification</h3>
-        <label className="block text-xs font-semibold text-[var(--muted)]">
-          Field
-          <select
-            className="mt-1 w-full rounded-[7px] border border-[var(--input-border)] px-2 py-2 text-sm font-normal text-[var(--foreground)]"
-            value={fieldKey}
-            onChange={(e) => setFieldKey(e.target.value)}
+              },
+              `${humanize(fieldKey)} saved.`,
+            );
+          }}
+        >
+          <h3 className="text-[15px]">Edit a fact</h3>
+          <p className="text-xs text-[var(--muted)]">
+            Unknown is a valid answer. Never fill in budget, vendor, people or intent you can&apos;t support.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Field">
+              <select className={inputClass} value={fieldKey} onChange={(e) => setFieldKey(e.target.value)}>
+                {FIELD_KEYS.map((f) => (
+                  <option key={f} value={f}>
+                    {humanize(f)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Basis">
+              <select className={inputClass} value={basis} onChange={(e) => setBasis(e.target.value)}>
+                {Object.entries(BASIS_LABELS).map(([k, label]) => (
+                  <option key={k} value={k}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          {basis !== "unknown" ? (
+            <Field label="Value">
+              <input className={inputClass} value={value} onChange={(e) => setValue(e.target.value)} />
+            </Field>
+          ) : null}
+          {basis === "source_observed" ? (
+            <fieldset className="space-y-1.5">
+              <legend className="text-xs font-semibold text-[var(--muted)]">Supporting evidence (required)</legend>
+              {evidence.length ? (
+                evidence.map((ev) => (
+                  <label key={ev.id} className="flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={evidenceIds.includes(ev.id)}
+                      onChange={(e) =>
+                        setEvidenceIds((ids) => (e.target.checked ? [...ids, ev.id] : ids.filter((i) => i !== ev.id)))
+                      }
+                    />
+                    <span>{ev.sourceTitle || ev.sourceUrl}</span>
+                  </label>
+                ))
+              ) : (
+                <p className="text-sm text-[var(--muted)]">No evidence on this account yet — run research first.</p>
+              )}
+            </fieldset>
+          ) : null}
+          {basis === "prospect_confirmed" ? (
+            <Field
+              label="Confirmation note (required)"
+              hint="Who said what, and when. An AI summary alone can't confirm a fact. You'll be recorded as the confirmer."
+            >
+              <textarea
+                className={inputClass}
+                rows={2}
+                value={confirmationNote}
+                onChange={(e) => setConfirmationNote(e.target.value)}
+                placeholder="e.g. Jane Smith (IT Director) on a call on 14 Oct said the refresh is budgeted for Q2"
+              />
+            </Field>
+          ) : null}
+          <FormError message={error} />
+          <FormNotice message={notice} />
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={
+              busy ||
+              (basis !== "unknown" && !value.trim()) ||
+              (basis === "source_observed" && !evidenceIds.length) ||
+              (basis === "prospect_confirmed" && !confirmationNote.trim())
+            }
           >
-            {FIELDS.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-xs font-semibold text-[var(--muted)]">
-          Value (unknown is valid)
-          <input
-            className="mt-1 w-full rounded-[7px] border border-[var(--input-border)] px-2 py-2 text-sm font-normal text-[var(--foreground)]"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder="Leave blank for unknown"
-          />
-        </label>
-        <label className="block text-xs font-semibold text-[var(--muted)]">
-          Basis
-          <select
-            className="mt-1 w-full rounded-[7px] border border-[var(--input-border)] px-2 py-2 text-sm font-normal text-[var(--foreground)]"
-            value={basis}
-            onChange={(e) => setBasis(e.target.value)}
-          >
-            <option value="unknown">unknown</option>
-            <option value="research_hypothesis">research_hypothesis</option>
-            <option value="source_observed">source_observed</option>
-            <option value="prospect_confirmed">prospect_confirmed</option>
-          </select>
-        </label>
-        <label className="block text-xs font-semibold text-[var(--muted)]">
-          Rationale / confirmation note
-          <textarea
-            className="mt-1 w-full rounded-[7px] border border-[var(--input-border)] px-2 py-2 text-sm font-normal text-[var(--foreground)]"
-            rows={3}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
-        </label>
-        {error ? <p className="text-sm text-[var(--red-active)]">{error}</p> : null}
-        <Button type="submit" variant="primary" disabled={busy}>
-          Save fact
-        </Button>
-      </form>
-    </Card>
+            Save fact
+          </Button>
+        </form>
+      </Card>
+    </div>
   );
 }

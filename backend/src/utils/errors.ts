@@ -41,3 +41,8 @@ export function providerNotConfigured(provider = "exa") {
     "provider_not_configured",
   );
 }
+
+/** Upstream provider failure, kept distinct from validation/authorization errors (spec §8). */
+export function providerError(message: string, code = "provider_error") {
+  return new AppError(502, message, code);
+}

@@ -1,21 +1,40 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { AppShell } from "./AppShell";
+import { usePathname, useRouter } from "next/navigation";
+import { AppShell, homeFor, visibleSections } from "./AppShell";
 import { LoadingState } from "../common/LoadingState";
 import { useWorkspace, WorkspaceProvider } from "../../hooks/useWorkspace";
 
 function PortalInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { workspaceId, loading, error, unauthorized, workspaceName } = useWorkspace();
+  const pathname = usePathname();
+  const { workspaceId, loading, error, unauthorized, can, user } = useWorkspace();
+  const onPasswordPage = pathname === "/account/password";
+  const mustChange = Boolean(user?.mustChangePassword);
+
+  // Send each role to a section it can use (e.g. partners → shared handoffs)
+  const sections = workspaceId ? visibleSections(can) : [];
+  const allowedHere =
+    sections.some((s) => pathname.startsWith(s.prefix)) || pathname === "/settings/how-it-works" || onPasswordPage;
+  const needsRedirect = (mustChange && !onPasswordPage) || (Boolean(workspaceId) && !allowedHere);
 
   useEffect(() => {
     if (unauthorized) router.replace("/login");
-  }, [unauthorized, router]);
+    else if (needsRedirect) router.replace(mustChange ? "/account/password" : homeFor(can));
+  }, [unauthorized, needsRedirect, mustChange, router, can]);
 
-  if (unauthorized) {
-    return <LoadingState label="Redirecting to sign in…" />;
+  if (unauthorized || needsRedirect) {
+    return <LoadingState label="Redirecting…" />;
+  }
+
+  // Forced password change happens outside the workspace shell
+  if (mustChange && onPasswordPage) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--background)] px-4">
+        <div className="w-full max-w-md">{children}</div>
+      </div>
+    );
   }
 
   if (loading) {
@@ -36,7 +55,7 @@ function PortalInner({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return <AppShell workspaceName={workspaceName}>{children}</AppShell>;
+  return <AppShell>{children}</AppShell>;
 }
 
 /** Shared shell for authenticated workspace routes — workspace loads once per session. */

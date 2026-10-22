@@ -1,61 +1,63 @@
+"use client";
+
+import { useState } from "react";
 import { formatDate } from "../../lib/utils/dates";
+import { reviewEvidence, type EvidenceItem } from "../../lib/api/accounts";
+import { StatusBadge } from "../common/StatusBadge";
+import { Badge } from "../ui/Badge";
+import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
-
-type EvidenceRow = {
-  id: string;
-  excerpt: string | null;
-  sourceUrl: string;
-  sourceTitle: string | null;
-  publisher: string | null;
-  eventDate: string | null;
-  discoveredAt: string;
-  checkedAt: string;
-  matchRationale: string | null;
-};
-
-type SignalFlag = {
-  evidenceId?: string | null;
-  unknownNote?: string | null;
-};
+import { FormError } from "../ui/Field";
 
 export function EvidenceList({
   items,
-  signals = [],
+  workspaceId,
+  canReview = false,
+  onChanged,
 }: {
-  items: EvidenceRow[];
-  signals?: SignalFlag[];
+  items: EvidenceItem[];
+  workspaceId?: string;
+  canReview?: boolean;
+  onChanged?: () => void;
 }) {
-  if (!items.length) {
-    return <p className="text-sm text-[var(--muted)]">No cited evidence yet.</p>;
-  }
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const flagsByEvidence = new Map<string, string[]>();
-  for (const s of signals) {
-    if (!s.evidenceId || !s.unknownNote) continue;
-    const list = flagsByEvidence.get(s.evidenceId) ?? [];
-    list.push(s.unknownNote);
-    flagsByEvidence.set(s.evidenceId, list);
+  if (!items.length) {
+    return (
+      <p className="text-sm text-[var(--muted)]">
+        No cited evidence yet. Run research to collect sources — an empty result is not a negative fact.
+      </p>
+    );
   }
 
   return (
-    <ul className="space-y-3">
-      {items.map((e) => {
-        const flags = flagsByEvidence.get(e.id) ?? [];
-        if (!e.eventDate && !flags.includes("event_date_unknown")) {
-          flags.push("event_date_unknown");
-        }
-        return (
+    <div className="space-y-3">
+      <FormError message={error} />
+      <ul className="space-y-3">
+        {items.map((e) => (
           <li key={e.id}>
             <Card className="!p-4">
-              <a
-                href={e.sourceUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="font-semibold text-[var(--red-active)] hover:underline"
-              >
-                {e.sourceTitle || e.sourceUrl}
-              </a>
-              {e.publisher ? <p className="text-xs text-[var(--muted)]">{e.publisher}</p> : null}
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <a
+                    href={e.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="font-semibold text-[var(--red-active)] hover:underline"
+                  >
+                    {e.sourceTitle || e.sourceUrl}
+                  </a>
+                  <p className="text-xs text-[var(--muted)]">
+                    {[e.publisher, e.sourceCountry].filter(Boolean).join(" · ") || "Publisher unknown"}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <StatusBadge status={e.freshness} />
+                  {e.contradiction ? <Badge tone="red">Contradictory sources</Badge> : null}
+                  {e.reviewedAt ? <Badge tone="green">Reviewed</Badge> : <Badge>Not reviewed</Badge>}
+                </div>
+              </div>
               {e.excerpt ? (
                 <blockquote className="mt-2 border-l-2 border-[var(--red)] pl-3 text-sm italic text-[var(--foreground)]">
                   {e.excerpt}
@@ -63,38 +65,47 @@ export function EvidenceList({
               ) : null}
               <dl className="mt-3 grid gap-1 text-xs text-[var(--muted)] sm:grid-cols-3">
                 <div>
-                  <dt className="font-semibold">Event</dt>
-                  <dd>{formatDate(e.eventDate)}</dd>
+                  <dt className="font-semibold">Event date</dt>
+                  <dd>{e.eventDate ? formatDate(e.eventDate) : "Unknown"}</dd>
                 </div>
                 <div>
                   <dt className="font-semibold">Discovered</dt>
                   <dd>{formatDate(e.discoveredAt)}</dd>
                 </div>
                 <div>
-                  <dt className="font-semibold">Checked</dt>
+                  <dt className="font-semibold">Last checked</dt>
                   <dd>{formatDate(e.checkedAt)}</dd>
                 </div>
               </dl>
-              {flags.length ? (
-                <ul className="mt-2 flex flex-wrap gap-2">
-                  {flags.map((f) => (
-                    <li
-                      key={f}
-                      className="rounded border border-[var(--badge-amber-bg)] bg-[var(--badge-amber-bg)] px-2 py-0.5 text-xs text-[var(--badge-amber-fg)]"
-                    >
-                      {f === "contradiction"
-                        ? "Contradictory fact"
-                        : f === "event_date_unknown"
-                          ? "Event date unknown"
-                          : f}
-                    </li>
-                  ))}
-                </ul>
+              <p className="mt-2 text-xs text-[var(--muted)]">
+                Why it matched: {e.matchRationale ?? "—"} · Provider ref {e.providerRequestRef || "—"} · Extraction v
+                {e.extractionVersion}
+              </p>
+              {canReview && workspaceId ? (
+                <Button
+                  className="mt-3"
+                  variant={e.reviewedAt ? "ghost" : "secondary"}
+                  disabled={busyId === e.id}
+                  onClick={async () => {
+                    setBusyId(e.id);
+                    setError(null);
+                    try {
+                      await reviewEvidence(e.id, workspaceId, !e.reviewedAt);
+                      onChanged?.();
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Could not update review");
+                    } finally {
+                      setBusyId(null);
+                    }
+                  }}
+                >
+                  {e.reviewedAt ? "Clear review" : "Mark as reviewed"}
+                </Button>
               ) : null}
             </Card>
           </li>
-        );
-      })}
-    </ul>
+        ))}
+      </ul>
+    </div>
   );
 }

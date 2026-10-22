@@ -2,6 +2,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "../db/client.js";
 import {
   memberships,
+  sessions,
   users,
   workspaces,
   type MembershipRole,
@@ -54,13 +55,14 @@ export async function grantMembership(input: {
   let temporaryPassword: string | undefined;
 
   if (!user) {
-    temporaryPassword = randomBytes(9).toString("base64url");
+    temporaryPassword = generateTemporaryPassword();
     const userId = newId("usr");
     await db.insert(users).values({
       id: userId,
       email,
       name: input.name?.trim() || email.split("@")[0] || "User",
       passwordHash: await hashPassword(temporaryPassword),
+      mustChangePassword: true,
     });
     [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   }
@@ -158,4 +160,67 @@ export async function revokeMembership(input: {
 
   const [updated] = await db.select().from(memberships).where(eq(memberships.id, row.id)).limit(1);
   return updated!;
+}
+
+export function generateTemporaryPassword(): string {
+  return randomBytes(12).toString("base64url");
+}
+
+/**
+ * Admin reset of a member's password. Allowed only when every active membership
+ * of that user belongs to the admin's tenant, so one tenant can never take over
+ * an account that also has access to another tenant.
+ */
+export async function resetMemberPassword(input: {
+  tenantId: string;
+  workspaceId: string;
+  membershipId: string;
+  actorUserId: string;
+}) {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.id, input.membershipId),
+        eq(memberships.workspaceId, input.workspaceId),
+        eq(memberships.tenantId, input.tenantId),
+        isNull(memberships.revokedAt),
+      ),
+    )
+    .limit(1);
+  if (!row) throw notFound("Membership not found");
+  if (row.userId === input.actorUserId) {
+    throw forbidden("Use “Change password” to change your own password");
+  }
+  const others = await db
+    .select({ tenantId: memberships.tenantId })
+    .from(memberships)
+    .where(and(eq(memberships.userId, row.userId), isNull(memberships.revokedAt)));
+  if (others.some((m) => m.tenantId !== input.tenantId)) {
+    throw forbidden("This person also belongs to another organization; they must reset it themselves");
+  }
+
+  const temporaryPassword = generateTemporaryPassword();
+  await db
+    .update(users)
+    .set({
+      passwordHash: await hashPassword(temporaryPassword),
+      mustChangePassword: true,
+      passwordChangedAt: new Date(),
+    })
+    .where(eq(users.id, row.userId));
+  // Sign the person out everywhere
+  await db.delete(sessions).where(eq(sessions.userId, row.userId));
+
+  await writeAudit({
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+    action: "membership.password_reset",
+    entityType: "membership",
+    entityId: row.id,
+  });
+  return { temporaryPassword };
 }

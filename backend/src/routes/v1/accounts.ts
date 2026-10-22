@@ -1,27 +1,35 @@
 import type { FastifyInstance } from "fastify";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "../../db/client.js";
 import {
   accounts,
   evidence,
-  mergeCandidates,
+  offers,
   qualifications,
-  qualificationFacts,
   signals,
   sources,
   acceptanceDecisions,
+  users,
 } from "../../db/schema/index.js";
+import { acceptanceStates } from "../../db/schema/workflow.js";
+import { accountResearchStates } from "../../db/schema/accounts.js";
 import { authenticateRequired } from "../../middleware/authenticate.js";
 import {
-  assertAccountInWorkspace,
+  accountScope,
+  assertAccountReadable,
   loadMembership,
   requireCap,
 } from "../../middleware/requireMembership.js";
-import { escapeCsvCell } from "../../utils/csv.js";
+import { toCsv } from "../../utils/csv.js";
 import { newId } from "../../utils/ids.js";
+import { validationError } from "../../utils/errors.js";
+import { normalizeCountry, normalizeDomain } from "../../utils/normalize.js";
 import { filterUnsuppressedAccounts, isSuppressed } from "../../services/suppressions.js";
-import { resolveMergeCandidate } from "../../services/merges.js";
+import { listPendingMergeCandidates, resolveMergeCandidate } from "../../services/merges.js";
+import { evidenceFreshness } from "../../services/evidence.js";
+import { getQualificationFacts } from "../../services/qualification.js";
+import { writeAudit } from "../../services/audit.js";
 
 export async function accountRoutes(app: FastifyInstance) {
   app.get(
@@ -29,12 +37,24 @@ export async function accountRoutes(app: FastifyInstance) {
     { preHandler: authenticateRequired },
     async (req) => {
       const { workspaceId } = req.params as { workspaceId: string };
-      await loadMembership(req, workspaceId);
+      const m = await loadMembership(req, workspaceId);
+      requireCap(m, "view_accounts");
+      const q = z
+        .object({
+          acceptanceState: z.enum(acceptanceStates).optional(),
+          researchState: z.enum(accountResearchStates).optional(),
+          ownerUserId: z.string().optional(),
+        })
+        .parse(req.query);
+      const where: SQL[] = [accountScope(m)];
+      if (q.acceptanceState) where.push(eq(accounts.acceptanceState, q.acceptanceState));
+      if (q.researchState) where.push(eq(accounts.researchState, q.researchState));
+      if (q.ownerUserId) where.push(eq(accounts.ownerUserId, q.ownerUserId));
       const db = getDb();
       const rows = await db
         .select()
         .from(accounts)
-        .where(eq(accounts.workspaceId, workspaceId))
+        .where(and(...where))
         .orderBy(desc(accounts.updatedAt));
       return { accounts: rows };
     },
@@ -49,26 +69,49 @@ export async function accountRoutes(app: FastifyInstance) {
       requireCap(m, "import");
       const body = z
         .object({
-          name: z.string().min(1),
-          domain: z.string().optional(),
-          country: z.string().optional(),
+          name: z.string().trim().min(1).max(300),
+          domain: z.string().max(300).optional(),
+          country: z.string().max(60).optional(),
         })
         .parse(req.body);
-      if (body.domain && (await isSuppressed(workspaceId, body.domain))) {
-        const { validationError } = await import("../../utils/errors.js");
+      const domain = body.domain?.trim() ? normalizeDomain(body.domain) : null;
+      if (body.domain?.trim() && !domain) throw validationError("Domain is not valid");
+      const country = body.country?.trim() ? normalizeCountry(body.country) : null;
+      if (body.country?.trim() && !country) throw validationError("Unknown country");
+      if (domain && (await isSuppressed(workspaceId, domain))) {
         throw validationError("Domain is suppressed");
       }
       const db = getDb();
+      if (domain) {
+        const [dup] = await db
+          .select({ id: accounts.id, name: accounts.name })
+          .from(accounts)
+          .where(and(accountScope(m), eq(accounts.domain, domain)))
+          .limit(1);
+        if (dup) {
+          const { conflict } = await import("../../utils/errors.js");
+          throw conflict(`An account with domain ${domain} already exists`, { accountId: dup.id });
+        }
+      }
       const id = newId("acc");
       await db.insert(accounts).values({
         id,
         tenantId: m.tenantId,
         workspaceId,
         name: body.name,
-        domain: body.domain?.toLowerCase() ?? null,
-        country: body.country,
+        domain,
+        country,
+        source: "manual",
         researchState: "unresearched",
         acceptanceState: "draft",
+      });
+      await writeAudit({
+        tenantId: m.tenantId,
+        workspaceId,
+        actorUserId: m.userId,
+        action: "account.created",
+        entityType: "account",
+        entityId: id,
       });
       const [row] = await db.select().from(accounts).where(eq(accounts.id, id)).limit(1);
       return { account: row };
@@ -80,15 +123,9 @@ export async function accountRoutes(app: FastifyInstance) {
     { preHandler: authenticateRequired },
     async (req) => {
       const { workspaceId } = req.params as { workspaceId: string };
-      await loadMembership(req, workspaceId);
-      const db = getDb();
-      const rows = await db
-        .select()
-        .from(mergeCandidates)
-        .where(
-          and(eq(mergeCandidates.workspaceId, workspaceId), eq(mergeCandidates.status, "pending")),
-        );
-      return { candidates: rows };
+      const m = await loadMembership(req, workspaceId);
+      requireCap(m, "import");
+      return { candidates: await listPendingMergeCandidates(m.tenantId, workspaceId) };
     },
   );
 
@@ -126,50 +163,69 @@ export async function accountRoutes(app: FastifyInstance) {
       const { accountId } = req.params as { accountId: string };
       const q = z.object({ workspaceId: z.string() }).parse(req.query);
       const m = await loadMembership(req, q.workspaceId);
-      await assertAccountInWorkspace(accountId, m.workspaceId, m.tenantId);
+      await assertAccountReadable(m, accountId);
 
       const db = getDb();
-      const [account] = await db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1);
-      const ev = await db
-        .select({
-          evidence: evidence,
-          source: sources,
-        })
-        .from(evidence)
-        .innerJoin(sources, eq(evidence.sourceId, sources.id))
-        .where(eq(evidence.accountId, accountId));
-      const sigs = await db.select().from(signals).where(eq(signals.accountId, accountId));
-      const [qual] = await db
-        .select()
-        .from(qualifications)
-        .where(eq(qualifications.accountId, accountId))
-        .limit(1);
-      let facts: (typeof qualificationFacts.$inferSelect)[] = [];
-      if (qual) {
-        facts = await db
+      // Independent reads run in parallel: each is a network round trip to the database
+      const [[account], [offer], ev, sigs, [qual], decisions] = await Promise.all([
+        db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
+        db
+          .select({ eventWindowDays: offers.eventWindowDays })
+          .from(offers)
+          .where(eq(offers.workspaceId, m.workspaceId))
+          .limit(1),
+        db
+          .select({ evidence, source: sources })
+          .from(evidence)
+          .innerJoin(sources, eq(evidence.sourceId, sources.id))
+          .where(and(eq(evidence.accountId, accountId), eq(evidence.workspaceId, m.workspaceId)))
+          .orderBy(desc(evidence.discoveredAt)),
+        db
           .select()
-          .from(qualificationFacts)
-          .where(eq(qualificationFacts.qualificationId, qual.id));
-        facts = facts.filter((f) => !f.supersededBy);
-      }
-      const decisions = await db
-        .select()
-        .from(acceptanceDecisions)
-        .where(eq(acceptanceDecisions.accountId, accountId))
-        .orderBy(desc(acceptanceDecisions.createdAt));
+          .from(signals)
+          .where(and(eq(signals.accountId, accountId), eq(signals.workspaceId, m.workspaceId))),
+        db
+          .select()
+          .from(qualifications)
+          .where(and(eq(qualifications.accountId, accountId), eq(qualifications.workspaceId, m.workspaceId)))
+          .limit(1),
+        db
+          .select({ decision: acceptanceDecisions, actorName: users.name })
+          .from(acceptanceDecisions)
+          .innerJoin(users, eq(acceptanceDecisions.actorUserId, users.id))
+          .where(eq(acceptanceDecisions.accountId, accountId))
+          .orderBy(desc(acceptanceDecisions.createdAt)),
+      ]);
+      const windowDays = offer?.eventWindowDays ?? 90;
+      const [facts, owner] = await Promise.all([
+        qual ? getQualificationFacts(qual.id).then((f) => f.current) : Promise.resolve([]),
+        account?.ownerUserId
+          ? db
+              .select({ id: users.id, name: users.name })
+              .from(users)
+              .where(eq(users.id, account.ownerUserId))
+              .limit(1)
+              .then((r) => r[0] ?? null)
+          : Promise.resolve(null),
+      ]);
 
       return {
         account,
+        owner,
+        eventWindowDays: windowDays,
         evidence: ev.map((e) => ({
           ...e.evidence,
           sourceUrl: e.source.canonicalUrl,
           sourceTitle: e.source.title,
           publisher: e.source.publisher,
+          sourceCountry: e.source.country,
+          freshness: evidenceFreshness(e.evidence, windowDays),
+          contradiction: sigs.some((s) => s.evidenceId === e.evidence.id && s.unknownNote === "contradiction"),
         })),
         signals: sigs,
-        qualification: qual,
+        qualification: qual ?? null,
         facts,
-        decisions,
+        decisions: decisions.map((d) => ({ ...d.decision, actorName: d.actorName })),
       };
     },
   );
@@ -179,28 +235,26 @@ export async function accountRoutes(app: FastifyInstance) {
     { preHandler: authenticateRequired },
     async (req, reply) => {
       const { workspaceId } = req.params as { workspaceId: string };
-      await loadMembership(req, workspaceId);
+      const m = await loadMembership(req, workspaceId);
+      requireCap(m, "export");
       const db = getDb();
-      const rows = await db.select().from(accounts).where(eq(accounts.workspaceId, workspaceId));
+      const rows = await db.select().from(accounts).where(accountScope(m));
       // Gate 8: suppression honored in exports
       const visible = await filterUnsuppressedAccounts(workspaceId, rows);
-      const header = ["name", "domain", "country", "research_state", "acceptance_state", "fit_score"];
-      const lines = [
-        header.join(","),
-        ...visible.map((r) =>
-          [
-            escapeCsvCell(r.name),
-            escapeCsvCell(r.domain),
-            escapeCsvCell(r.country),
-            escapeCsvCell(r.researchState),
-            escapeCsvCell(r.acceptanceState),
-            escapeCsvCell(r.fitScore),
-          ].join(","),
-        ),
-      ];
+      await writeAudit({
+        tenantId: m.tenantId,
+        workspaceId,
+        actorUserId: m.userId,
+        action: "accounts.exported",
+        metadata: { rows: visible.length },
+      });
       reply.header("content-type", "text/csv; charset=utf-8");
       reply.header("content-disposition", 'attachment; filename="accounts.csv"');
-      return lines.join("\n");
+      reply.header("cache-control", "no-store");
+      return toCsv(
+        ["name", "domain", "country", "research_state", "acceptance_state", "fit_score"],
+        visible.map((r) => [r.name, r.domain, r.country, r.researchState, r.acceptanceState, r.fitScore]),
+      );
     },
   );
 }

@@ -10,6 +10,7 @@ const envSchema = z.object({
   AUTH_SECRET: z.string().min(16, "AUTH_SECRET must be at least 16 characters"),
   FRONTEND_ORIGIN: z.string().default("http://localhost:3000"),
   PORT: z.coerce.number().default(4000),
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   EXA_API_KEY: z.string().optional().default(""),
 });
 
@@ -36,4 +37,8 @@ export function getDirectDatabaseUrl(): string {
 
 export function isExaConfigured(): boolean {
   return Boolean(getEnv().EXA_API_KEY?.trim());
+}
+
+export function isProduction(): boolean {
+  return getEnv().NODE_ENV === "production";
 }

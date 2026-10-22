@@ -1,6 +1,23 @@
 import { api } from "../api/client";
+import type { Capability } from "./capabilities";
 
-export type User = { id: string; email: string; name: string };
+export type User = { id: string; email: string; name: string; mustChangePassword: boolean };
+
+export async function changePassword(currentPassword: string, newPassword: string) {
+  return api<{ ok: boolean }>("/v1/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export type WorkspaceMembership = {
+  id: string;
+  name: string;
+  tenantId: string;
+  currency: string;
+  role: string;
+  capabilities: Capability[];
+};
 
 export async function login(email: string, password: string) {
   return api<{ user: User }>("/v1/auth/login", {
@@ -18,7 +35,5 @@ export async function me() {
 }
 
 export async function listWorkspaces() {
-  return api<{
-    workspaces: Array<{ id: string; name: string; tenantId: string; role: string }>;
-  }>("/v1/workspaces");
+  return api<{ workspaces: WorkspaceMembership[] }>("/v1/workspaces");
 }

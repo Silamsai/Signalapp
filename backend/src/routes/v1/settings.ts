@@ -2,15 +2,20 @@ import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "../../db/client.js";
-import { offers, playbookVersions } from "../../db/schema/index.js";
+import { offers, playbookVersions, workspaces } from "../../db/schema/index.js";
 import { authenticateRequired } from "../../middleware/authenticate.js";
 import { loadMembership, requireCap } from "../../middleware/requireMembership.js";
+import { hasCapability } from "../../auth/permissions.js";
 import { getUsage } from "../../services/budget.js";
 import { researchProviderStatus } from "../../providers/research/index.js";
 import { newId } from "../../utils/ids.js";
+import { forbidden, validationError } from "../../utils/errors.js";
 import { writeAudit } from "../../services/audit.js";
-import { ensureEntitlements } from "../../services/entitlements.js";
-import { listSendingAccounts } from "../../services/campaigns.js";
+import { ensureEntitlements, updateEntitlements } from "../../services/entitlements.js";
+import { parseBrief } from "../../services/briefParser.js";
+import { parseGates } from "../../services/acceptance.js";
+import { FIELD_KEYS } from "../../services/qualification.js";
+import { normalizeCountry } from "../../utils/normalize.js";
 
 export async function settingsRoutes(app: FastifyInstance) {
   app.get(
@@ -19,6 +24,9 @@ export async function settingsRoutes(app: FastifyInstance) {
     async (req) => {
       const { workspaceId } = req.params as { workspaceId: string };
       const m = await loadMembership(req, workspaceId);
+      if (!hasCapability(m.role, "manage_settings") && !hasCapability(m.role, "view_accounts")) {
+        throw forbidden("Missing capability: view_accounts");
+      }
       const db = getDb();
       const [offer] = await db
         .select()
@@ -44,7 +52,7 @@ export async function settingsRoutes(app: FastifyInstance) {
               unsupportedFilters: JSON.parse(offer.unsupportedFiltersJson),
             }
           : null,
-        playbooks,
+        playbooks: playbooks.map((p) => ({ ...p, rules: JSON.parse(p.rulesJson) })),
       };
     },
   );
@@ -58,31 +66,37 @@ export async function settingsRoutes(app: FastifyInstance) {
       requireCap(m, "manage_settings");
       const body = z
         .object({
-          offering: z.string(),
-          buyerRoles: z.array(z.string()).default([]),
-          industries: z.array(z.string()).default([]),
-          companySizes: z.array(z.string()).default([]),
-          territory: z.array(z.string()).default([]),
-          exclusions: z.array(z.string()).default([]),
-          eventWindowDays: z.number().int().positive().default(90),
-          naturalLanguageBrief: z.string().optional(),
+          offering: z.string().min(1).max(300),
+          buyerRoles: z.array(z.string().max(80)).max(30).default([]),
+          industries: z.array(z.string().max(80)).max(30).default([]),
+          companySizes: z.array(z.string().max(20)).max(10).default([]),
+          territory: z.array(z.string().max(60)).max(30).default([]),
+          exclusions: z.array(z.string().max(200)).max(200).default([]),
+          eventWindowDays: z.number().int().min(1).max(3650).default(90),
+          naturalLanguageBrief: z.string().max(2000).optional(),
+          expectedVersion: z.number().int().optional(),
         })
         .parse(req.body);
 
-      // Parse NL brief into visible structured query; surface unsupported filters
-      const unsupported: string[] = [];
-      const structured: Record<string, unknown> = {
-        offering: body.offering,
-        territory: body.territory,
-        industries: body.industries,
-      };
-      if (body.naturalLanguageBrief) {
-        const brief = body.naturalLanguageBrief.toLowerCase();
-        if (brief.includes("linkedin") || brief.includes("intent score")) {
-          unsupported.push("LinkedIn/intent score filters are not supported in Phase 1");
-        }
-        structured.briefTokens = body.naturalLanguageBrief.split(/\s+/).slice(0, 40);
+      // Territory is stored as ISO codes so region matching uses normalized data (R1)
+      const territory: string[] = [];
+      for (const t of body.territory) {
+        const code = normalizeCountry(t);
+        if (!code) throw validationError(`Unknown territory "${t}" — use a country name or ISO code`);
+        if (!territory.includes(code)) territory.push(code);
       }
+
+      // Parse NL brief into a visible structured query; surface unsupported filters
+      const parsed = body.naturalLanguageBrief ? parseBrief(body.naturalLanguageBrief) : null;
+      const structured = {
+        offering: body.offering,
+        territory,
+        industries: body.industries,
+        companySizes: body.companySizes,
+        eventWindowDays: body.eventWindowDays,
+        fromBrief: parsed?.structured ?? null,
+      };
+      const unsupported = parsed?.unsupported ?? [];
 
       const db = getDb();
       const [existing] = await db
@@ -91,39 +105,34 @@ export async function settingsRoutes(app: FastifyInstance) {
         .where(eq(offers.workspaceId, workspaceId))
         .limit(1);
 
+      const values = {
+        offering: body.offering,
+        buyerRolesJson: JSON.stringify(body.buyerRoles),
+        industriesJson: JSON.stringify(body.industries),
+        companySizesJson: JSON.stringify(body.companySizes),
+        territoryJson: JSON.stringify(territory),
+        exclusionsJson: JSON.stringify(body.exclusions),
+        eventWindowDays: body.eventWindowDays,
+        naturalLanguageBrief: body.naturalLanguageBrief,
+        structuredQueryJson: JSON.stringify(structured),
+        unsupportedFiltersJson: JSON.stringify(unsupported),
+      };
+
       if (existing) {
+        if (body.expectedVersion !== undefined && body.expectedVersion !== existing.version) {
+          const { conflict } = await import("../../utils/errors.js");
+          throw conflict("Settings were changed by someone else — reload and retry");
+        }
         await db
           .update(offers)
-          .set({
-            offering: body.offering,
-            buyerRolesJson: JSON.stringify(body.buyerRoles),
-            industriesJson: JSON.stringify(body.industries),
-            companySizesJson: JSON.stringify(body.companySizes),
-            territoryJson: JSON.stringify(body.territory),
-            exclusionsJson: JSON.stringify(body.exclusions),
-            eventWindowDays: body.eventWindowDays,
-            naturalLanguageBrief: body.naturalLanguageBrief,
-            structuredQueryJson: JSON.stringify(structured),
-            unsupportedFiltersJson: JSON.stringify(unsupported),
-            version: existing.version + 1,
-            updatedAt: new Date(),
-          })
+          .set({ ...values, version: existing.version + 1, updatedAt: new Date() })
           .where(eq(offers.id, existing.id));
       } else {
         await db.insert(offers).values({
           id: newId("ofr"),
           tenantId: m.tenantId,
           workspaceId,
-          offering: body.offering,
-          buyerRolesJson: JSON.stringify(body.buyerRoles),
-          industriesJson: JSON.stringify(body.industries),
-          companySizesJson: JSON.stringify(body.companySizes),
-          territoryJson: JSON.stringify(body.territory),
-          exclusionsJson: JSON.stringify(body.exclusions),
-          eventWindowDays: body.eventWindowDays,
-          naturalLanguageBrief: body.naturalLanguageBrief,
-          structuredQueryJson: JSON.stringify(structured),
-          unsupportedFiltersJson: JSON.stringify(unsupported),
+          ...values,
         });
       }
 
@@ -134,7 +143,45 @@ export async function settingsRoutes(app: FastifyInstance) {
         action: "settings.offer.updated",
       });
 
-      return { ok: true, unsupportedFilters: unsupported, structuredQuery: structured };
+      return { ok: true, territory, unsupportedFilters: unsupported, structuredQuery: structured };
+    },
+  );
+
+  app.get(
+    "/v1/workspaces/:workspaceId/settings/acceptance-gates",
+    { preHandler: authenticateRequired },
+    async (req) => {
+      const { workspaceId } = req.params as { workspaceId: string };
+      await loadMembership(req, workspaceId);
+      const db = getDb();
+      const [ws] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+      return { gates: parseGates(ws?.acceptanceGatesJson), fieldKeys: FIELD_KEYS };
+    },
+  );
+
+  app.put(
+    "/v1/workspaces/:workspaceId/settings/acceptance-gates",
+    { preHandler: authenticateRequired },
+    async (req) => {
+      const { workspaceId } = req.params as { workspaceId: string };
+      const m = await loadMembership(req, workspaceId);
+      requireCap(m, "manage_settings");
+      const body = z
+        .object({ requiredKnownFields: z.array(z.enum(FIELD_KEYS)).max(FIELD_KEYS.length) })
+        .parse(req.body);
+      const db = getDb();
+      await db
+        .update(workspaces)
+        .set({ acceptanceGatesJson: JSON.stringify(body) })
+        .where(eq(workspaces.id, workspaceId));
+      await writeAudit({
+        tenantId: m.tenantId,
+        workspaceId,
+        actorUserId: req.actor!.userId,
+        action: "settings.acceptance_gates.updated",
+        metadata: { requiredKnownFields: body.requiredKnownFields },
+      });
+      return { gates: body };
     },
   );
 
@@ -144,26 +191,56 @@ export async function settingsRoutes(app: FastifyInstance) {
     async (req) => {
       const { workspaceId } = req.params as { workspaceId: string };
       const m = await loadMembership(req, workspaceId);
+      if (!hasCapability(m.role, "manage_settings") && !hasCapability(m.role, "research")) {
+        throw forbidden("Missing capability: manage_settings");
+      }
       const usage = await getUsage(m.tenantId);
       const entitlements = await ensureEntitlements(m.tenantId, workspaceId);
-      const sending = await listSendingAccounts(workspaceId);
-      const enabledMailbox = sending.accounts.some((a) => a.enabled);
       return {
         research: researchProviderStatus(),
         usage,
-        entitlements,
+        entitlements: {
+          researchEnabled: entitlements.researchEnabled,
+          researchKillSwitch: entitlements.researchKillSwitch,
+        },
         crm: {
           configured: false,
-          skipped: true,
-          note: "CRM sync is not enabled in this deployment",
+          note: "CRM synchronization is a Phase 2 integration and is not enabled",
         },
         sending: {
-          provider: "simulated",
-          enabled: enabledMailbox && entitlements.sendingEnabled && !entitlements.sendingKillSwitch,
-          accounts: sending.accounts.length,
-          domains: sending.domains.length,
+          enabled: false,
+          note: "Phase 1 does not dispatch calls or messages",
         },
-        monitors: { enabled: entitlements.monitorsEnabled },
+      };
+    },
+  );
+
+  app.patch(
+    "/v1/workspaces/:workspaceId/entitlements",
+    { preHandler: authenticateRequired },
+    async (req) => {
+      const { workspaceId } = req.params as { workspaceId: string };
+      const m = await loadMembership(req, workspaceId);
+      requireCap(m, "manage_entitlements");
+      const body = z
+        .object({
+          researchEnabled: z.boolean().optional(),
+          researchKillSwitch: z.boolean().optional(),
+        })
+        .parse(req.body);
+      const updated = await updateEntitlements(m.tenantId, workspaceId, body);
+      await writeAudit({
+        tenantId: m.tenantId,
+        workspaceId,
+        actorUserId: req.actor!.userId,
+        action: "entitlements.updated",
+        metadata: body,
+      });
+      return {
+        entitlements: {
+          researchEnabled: updated.researchEnabled,
+          researchKillSwitch: updated.researchKillSwitch,
+        },
       };
     },
   );

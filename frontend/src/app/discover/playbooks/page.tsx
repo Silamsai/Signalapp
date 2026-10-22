@@ -1,108 +1,79 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { useWorkspace } from "@/hooks/useWorkspace";
-import { getOffer } from "@/lib/api/settings";
-import { LoadingState } from "@/components/common/LoadingState";
+import { RequireCap } from "@/components/common/RequireCap";
 import { ErrorState } from "@/components/common/ErrorState";
-import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
+import { LoadingState } from "@/components/common/LoadingState";
 import { EmptyState } from "@/components/common/EmptyState";
+import { getOffer, type Playbook } from "@/lib/api/settings";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Chip } from "@/components/ui/Chip";
+import { humanize } from "@/components/ui/Field";
 
-const FALLBACK = [
-  {
-    id: "infra",
-    name: "Infrastructure expansion",
-    templateKey: "infrastructure",
-    blurb: "Facility growth, compute, storage, and resilience projects.",
-    evidence: "Expansion announcements, site builds, capacity spend signals",
+const ABOUT: Record<string, { blurb: string; question: string }> = {
+  infrastructure: {
+    blurb: "Facility growth, compute and storage capacity, refresh and procurement events.",
     question: "Where is new infrastructure creating a buying window?",
   },
-  {
-    id: "hire",
-    name: "Hiring demand",
-    templateKey: "recruitment",
-    blurb: "Infrastructure and platform hiring that implies change.",
-    evidence: "IT infrastructure / platform role postings",
-    question: "Which teams are staffing for a refresh or migration?",
+  recruitment: {
+    blurb: "Infrastructure and platform hiring that suggests change is coming.",
+    question: "Which teams are staffing up for a refresh or migration?",
   },
-  {
-    id: "msp",
-    name: "Multi-site IT support",
-    templateKey: "managed_it",
-    blurb: "Distributed estates needing managed compute and support.",
-    evidence: "Multi-site operations, MSP transitions, refresh cycles",
-    question: "Where can Lenovo-style infrastructure offers land next?",
+  managed_it: {
+    blurb: "Multi-site estates, refresh cycles and changes of support provider.",
+    question: "Where would managed infrastructure services land next?",
   },
-];
+};
 
-export default function PlaybooksPage() {
-  const { workspaceId, loading, error } = useWorkspace();
-  const [playbooks, setPlaybooks] = useState<
-    Array<{ id: string; name: string; templateKey: string; version?: number }>
-  >([]);
+function Playbooks({ workspaceId }: { workspaceId: string }) {
+  const [playbooks, setPlaybooks] = useState<Playbook[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!workspaceId) return;
-    void getOffer(workspaceId).then((r) =>
-      setPlaybooks(r.playbooks as Array<{ id: string; name: string; templateKey: string; version?: number }>),
-    );
+    getOffer(workspaceId)
+      .then((r) => setPlaybooks(r.playbooks))
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load playbooks"));
   }, [workspaceId]);
 
-  if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} />;
-
-  const cards =
-    playbooks.length > 0
-      ? playbooks.map((p) => {
-          const meta = FALLBACK.find((f) => f.templateKey === p.templateKey) ?? FALLBACK[0];
-          return {
-            id: p.id,
-            name: p.name,
-            blurb: meta.blurb,
-            evidence: meta.evidence,
-            question: meta.question,
-            version: p.version,
-          };
-        })
-      : FALLBACK;
+  if (!playbooks) return <LoadingState />;
 
   return (
     <div>
       <PageHeader
         eyebrow="Playbooks"
         title="Signal playbooks"
-        description="Choose sales context before finding accounts. Executed playbook version is stored with each research run."
+        description="Versioned templates for which signals to look for. The playbook version used is stored with every research run."
       />
-
-      {!cards.length ? (
-        <EmptyState title="No playbooks" detail="Run backend db:seed to load defaults." />
+      {!playbooks.length ? (
+        <EmptyState title="No playbooks" detail="An admin can load the defaults by running the database seed." />
       ) : (
         <div className="grid gap-5 md:grid-cols-3">
-          {cards.map((p) => (
+          {playbooks.map((p) => (
             <Card key={p.id} className="flex flex-col">
-              <h2 className="text-[17px]">{p.name}</h2>
-              <p className="mt-2 text-sm text-[var(--muted)]">{p.blurb}</p>
-              <div className="mt-4 space-y-3 text-sm">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">
-                    Required evidence
-                  </p>
-                  <p className="mt-1 text-[var(--foreground)]">{p.evidence}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">
-                    Discovery question
-                  </p>
-                  <p className="mt-1 text-[var(--foreground)]">{p.question}</p>
-                </div>
+              <h2 className="text-[17px]">
+                {p.name} <span className="text-sm font-normal text-[var(--muted)]">v{p.version}</span>
+              </h2>
+              <p className="mt-2 text-sm text-[var(--muted)]">{ABOUT[p.templateKey]?.blurb}</p>
+              <div className="mt-4 flex flex-wrap gap-1.5">
+                {(p.rules.signals ?? []).map((s) => (
+                  <Chip key={s}>{humanize(s)}</Chip>
+                ))}
               </div>
+              {ABOUT[p.templateKey] ? (
+                <p className="mt-4 text-sm">
+                  <span className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Discovery question</span>
+                  <br />
+                  {ABOUT[p.templateKey]!.question}
+                </p>
+              ) : null}
               <div className="mt-auto pt-5">
                 <Link href="/discover/search">
                   <Button variant="primary" className="w-full">
-                    Use playbook
+                    Search with this playbook
                   </Button>
                 </Link>
               </div>
@@ -112,4 +83,8 @@ export default function PlaybooksPage() {
       )}
     </div>
   );
+}
+
+export default function PlaybooksPage() {
+  return <RequireCap cap="discover">{(workspaceId) => <Playbooks workspaceId={workspaceId} />}</RequireCap>;
 }

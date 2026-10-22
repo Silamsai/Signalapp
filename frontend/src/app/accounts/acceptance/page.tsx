@@ -3,41 +3,59 @@
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AccountTable } from "@/components/accounts/AccountTable";
+import { RequireCap } from "@/components/common/RequireCap";
+import { ErrorState } from "@/components/common/ErrorState";
+import { LoadingState } from "@/components/common/LoadingState";
+import { EmptyState } from "@/components/common/EmptyState";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { listAccounts, type Account } from "@/lib/api/accounts";
-import { LoadingState } from "@/components/common/LoadingState";
-import { ErrorState } from "@/components/common/ErrorState";
 import { KpiTile } from "@/components/ui/KpiTile";
 
-export default function AcceptanceQueuePage() {
-  const { workspaceId, loading, error } = useWorkspace();
-  const [accounts, setAccounts] = useState<Account[]>([]);
+function AcceptanceQueue({ workspaceId }: { workspaceId: string }) {
+  const { can } = useWorkspace();
+  const [accounts, setAccounts] = useState<Account[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!workspaceId) return;
-    void listAccounts(workspaceId).then((r) => setAccounts(r.accounts));
+    listAccounts(workspaceId)
+      .then((r) => setAccounts(r.accounts))
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load"));
   }, [workspaceId]);
 
-  if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} />;
+  if (!accounts) return <LoadingState />;
 
-  const ready = accounts.filter((a) => a.acceptanceState === "ready_for_review");
-  const accepted = accounts.filter((a) => a.acceptanceState === "accepted").length;
-  const returned = accounts.filter((a) => a.acceptanceState === "needs_research").length;
+  const count = (s: string) => accounts.filter((a) => a.acceptanceState === s).length;
+  const queue = can("accept")
+    ? accounts.filter((a) => a.acceptanceState === "ready_for_review")
+    : accounts.filter((a) => a.acceptanceState === "draft" || a.acceptanceState === "needs_research");
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Sales acceptance"
-        title="Sales acceptance"
-        description="Reviewer queue for Ready for review. Open an account to accept, return, or reject."
+        title={can("accept") ? "Briefs waiting for review" : "Briefs to finish and submit"}
+        description={
+          can("accept")
+            ? "Open an account to accept, return or reject it. Each decision records the reviewer, reason, time and brief version."
+            : "Draft and returned accounts. Complete the qualification brief, then submit it for review."
+        }
       />
-      <div className="grid gap-4 sm:grid-cols-3">
-        <KpiTile label="Ready for review" value={ready.length} />
-        <KpiTile label="Accepted" value={accepted} />
-        <KpiTile label="Needs research" value={returned} />
+      <div className="grid gap-4 sm:grid-cols-4">
+        <KpiTile label="Draft" value={count("draft")} />
+        <KpiTile label="Ready for review" value={count("ready_for_review")} />
+        <KpiTile label="Needs research" value={count("needs_research")} />
+        <KpiTile label="Accepted" value={count("accepted")} />
       </div>
-      <AccountTable accounts={ready} />
+      {queue.length ? <AccountTable accounts={queue} /> : <EmptyState title="Nothing in this queue" />}
     </div>
+  );
+}
+
+export default function AcceptancePage() {
+  return (
+    <RequireCap anyOf={["accept", "submit_review"]}>
+      {(workspaceId) => <AcceptanceQueue workspaceId={workspaceId} />}
+    </RequireCap>
   );
 }

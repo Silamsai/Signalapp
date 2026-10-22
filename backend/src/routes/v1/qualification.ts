@@ -2,18 +2,16 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authenticateRequired } from "../../middleware/authenticate.js";
 import {
-  assertAccountInWorkspace,
+  assertAccountReadable,
   loadMembership,
   requireCap,
 } from "../../middleware/requireMembership.js";
 import {
   FIELD_KEYS,
   getOrCreateQualification,
+  getQualificationFacts,
   updateQualification,
 } from "../../services/qualification.js";
-import { getDb } from "../../db/client.js";
-import { eq } from "drizzle-orm";
-import { qualificationFacts } from "../../db/schema/index.js";
 
 export async function qualificationRoutes(app: FastifyInstance) {
   app.get(
@@ -23,16 +21,13 @@ export async function qualificationRoutes(app: FastifyInstance) {
       const { accountId } = req.params as { accountId: string };
       const q = z.object({ workspaceId: z.string() }).parse(req.query);
       const m = await loadMembership(req, q.workspaceId);
-      await assertAccountInWorkspace(accountId, m.workspaceId, m.tenantId);
+      await assertAccountReadable(m, accountId);
       const qual = await getOrCreateQualification(m.tenantId, m.workspaceId, accountId);
-      const db = getDb();
-      const facts = await db
-        .select()
-        .from(qualificationFacts)
-        .where(eq(qualificationFacts.qualificationId, qual.id));
+      const { current, history } = await getQualificationFacts(qual.id);
       return {
         qualification: qual,
-        facts: facts.filter((f) => !f.supersededBy),
+        facts: current,
+        history,
         fieldKeys: FIELD_KEYS,
       };
     },
@@ -46,7 +41,7 @@ export async function qualificationRoutes(app: FastifyInstance) {
       const q = z.object({ workspaceId: z.string() }).parse(req.query);
       const m = await loadMembership(req, q.workspaceId);
       requireCap(m, "qualify");
-      await assertAccountInWorkspace(accountId, m.workspaceId, m.tenantId);
+      await assertAccountReadable(m, accountId);
 
       const body = z
         .object({
@@ -71,7 +66,7 @@ export async function qualificationRoutes(app: FastifyInstance) {
         })
         .parse(req.body);
 
-      const result = await updateQualification({
+      return updateQualification({
         tenantId: m.tenantId,
         workspaceId: m.workspaceId,
         accountId,
@@ -79,12 +74,11 @@ export async function qualificationRoutes(app: FastifyInstance) {
         rationale: body.rationale,
         facts: body.facts?.map((f) => ({
           ...f,
-          confirmerUserId:
-            f.basis === "prospect_confirmed" ? req.actor!.userId : undefined,
+          // Confirmer identity comes from the session, never the form
+          confirmerUserId: f.basis === "prospect_confirmed" ? req.actor!.userId : undefined,
         })),
         actorUserId: req.actor!.userId,
       });
-      return result;
     },
   );
 }

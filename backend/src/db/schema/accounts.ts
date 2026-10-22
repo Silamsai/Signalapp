@@ -30,6 +30,8 @@ export const accounts = pgTable(
     domain: text("domain"),
     country: text("country"),
     legalName: text("legal_name"),
+    /** manual | import | discovery */
+    source: text("source").notNull().default("manual"),
     researchState: text("research_state")
       .notNull()
       .$type<AccountResearchState>()
@@ -39,6 +41,8 @@ export const accounts = pgTable(
       .notNull()
       .default("draft"),
     ownerUserId: text("owner_user_id"),
+    /** Set when this record was merged into another account (merge history, R2) */
+    mergedIntoId: text("merged_into_id"),
     version: integer("version").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -111,6 +115,7 @@ export const importJobs = pgTable(
     successRows: integer("success_rows").notNull().default(0),
     errorRows: integer("error_rows").notNull().default(0),
     rowErrorsJson: text("row_errors_json"),
+    mappingJson: text("mapping_json"),
     createdBy: text("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),

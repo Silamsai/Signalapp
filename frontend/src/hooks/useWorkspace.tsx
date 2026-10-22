@@ -9,7 +9,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { listWorkspaces } from "../lib/auth/session";
+import { listWorkspaces, me, type User, type WorkspaceMembership } from "../lib/auth/session";
+import type { Capability } from "../lib/auth/capabilities";
 import { ApiError } from "../lib/api/client";
 
 const KEY = "signal_workspace_id";
@@ -18,6 +19,12 @@ type WorkspaceState = {
   workspaceId: string | null;
   workspaceName: string | null;
   role: string | null;
+  currency: string;
+  user: User | null;
+  workspaces: WorkspaceMembership[];
+  /** Capabilities granted by the server for the selected workspace */
+  can: (cap: Capability) => boolean;
+  selectWorkspace: (id: string) => void;
   loading: boolean;
   error: string | null;
   unauthorized: boolean;
@@ -26,35 +33,60 @@ type WorkspaceState = {
 
 const WorkspaceContext = createContext<WorkspaceState | null>(null);
 
+function readStored(): string | null {
+  try {
+    return localStorage.getItem(KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStored(id: string) {
+  try {
+    localStorage.setItem(KEY, id);
+  } catch {
+    // storage unavailable — selection falls back to the first workspace
+  }
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
-  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
-  const [role, setRole] = useState<string | null>(null);
+  const [workspaces, setWorkspaces] = useState<WorkspaceMembership[]>([]);
+  const [selected, setSelected] = useState<WorkspaceMembership | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [unauthorized, setUnauthorized] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const { workspaces } = await listWorkspaces();
-      const stored = typeof window !== "undefined" ? localStorage.getItem(KEY) : null;
-      const selected = workspaces.find((w) => w.id === stored) ?? workspaces[0] ?? null;
-      if (selected) {
-        localStorage.setItem(KEY, selected.id);
-        setWorkspaceId(selected.id);
-        setWorkspaceName(selected.name);
-        setRole(selected.role);
-        setError(null);
+      // Both requests in parallel; the workspace list is refused while a temporary password is active
+      const [meRes, wsRes] = await Promise.allSettled([me(), listWorkspaces()]);
+      if (meRes.status === "rejected") throw meRes.reason;
+      const u = meRes.value.user;
+      setUser(u);
+      if (u.mustChangePassword) {
         setUnauthorized(false);
+        setError(null);
+        return;
+      }
+      if (wsRes.status === "rejected") throw wsRes.reason;
+      const list = wsRes.value.workspaces;
+      setWorkspaces(list);
+      const stored = readStored();
+      const pick = list.find((w) => w.id === stored) ?? list[0] ?? null;
+      setSelected(pick);
+      setUnauthorized(false);
+      if (pick) {
+        writeStored(pick.id);
+        setError(null);
       } else {
-        setWorkspaceId(null);
-        setError("No workspace membership");
+        setError("You don't have access to any workspace. Ask a workspace admin to add you.");
       }
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         setUnauthorized(true);
         setError(null);
-        setWorkspaceId(null);
+        setSelected(null);
       } else {
         setError(e instanceof Error ? e.message : "Failed to load workspaces");
       }
@@ -67,18 +99,33 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
-  const value = useMemo(
-    () => ({
-      workspaceId,
-      workspaceName,
-      role,
+  const selectWorkspace = useCallback(
+    (id: string) => {
+      const next = workspaces.find((w) => w.id === id);
+      if (!next) return;
+      writeStored(id);
+      setSelected(next);
+    },
+    [workspaces],
+  );
+
+  const value = useMemo<WorkspaceState>(() => {
+    const caps = new Set(selected?.capabilities ?? []);
+    return {
+      workspaceId: selected?.id ?? null,
+      workspaceName: selected?.name ?? null,
+      role: selected?.role ?? null,
+      currency: selected?.currency ?? "GBP",
+      user,
+      workspaces,
+      can: (cap) => caps.has(cap),
+      selectWorkspace,
       loading,
       error,
       unauthorized,
       refresh,
-    }),
-    [workspaceId, workspaceName, role, loading, error, unauthorized, refresh],
-  );
+    };
+  }, [selected, user, workspaces, selectWorkspace, loading, error, unauthorized, refresh]);
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }

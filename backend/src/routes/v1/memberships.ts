@@ -9,6 +9,7 @@ import { loadMembership, requireCap } from "../../middleware/requireMembership.j
 import {
   grantMembership,
   listMemberships,
+  resetMemberPassword,
   revokeMembership,
 } from "../../services/memberships.js";
 
@@ -71,6 +72,25 @@ export async function membershipRoutes(app: FastifyInstance) {
         actorUserId: req.actor!.userId,
       });
       return { membership };
+    },
+  );
+
+  app.post(
+    "/v1/workspaces/:workspaceId/memberships/:membershipId/reset-password",
+    { preHandler: authenticateRequired },
+    async (req) => {
+      const { workspaceId, membershipId } = req.params as {
+        workspaceId: string;
+        membershipId: string;
+      };
+      const m = await loadMembership(req, workspaceId);
+      requireCap(m, "manage_membership");
+      return resetMemberPassword({
+        tenantId: m.tenantId,
+        workspaceId,
+        membershipId,
+        actorUserId: req.actor!.userId,
+      });
     },
   );
 }
