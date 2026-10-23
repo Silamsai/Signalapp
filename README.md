@@ -21,9 +21,9 @@ SignalApp helps infrastructure sales teams find accounts showing buying signals,
 cd backend
 npm install
 npm run db:migrate     # applies migrations (0003 drops unused feature tables, 0004 adds review/quota/merge fields)
-SEED_ADMIN_EMAIL=you@company.com SEED_ADMIN_PASSWORD='at least 12 characters' npm run db:seed
-npm run dev            # API on :4000
-npm run worker         # research + import jobs (separate terminal)
+SEED_ADMIN_EMAIL=you@company.com SEED_ADMIN_PASSWORD='at least 8 characters' npm run db:seed
+npm run dev            # API on :4000 + worker (research + import jobs) together
+                       # (npm run dev:api / npm run worker run them separately)
 
 cd ../frontend
 npm install

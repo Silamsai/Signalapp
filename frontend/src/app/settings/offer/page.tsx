@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { RequireCap } from "@/components/common/RequireCap";
@@ -41,6 +42,14 @@ function OfferSettings({ workspaceId }: { workspaceId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [gateNotice, setGateNotice] = useState<string | null>(null);
+  const [savedOpen, setSavedOpen] = useState(false);
+
+  useEffect(() => {
+    if (!savedOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setSavedOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [savedOpen]);
 
   useEffect(() => {
     Promise.all([getOffer(workspaceId), getAcceptanceGates(workspaceId)])
@@ -85,6 +94,22 @@ function OfferSettings({ workspaceId }: { workspaceId: string }) {
             e.preventDefault();
             setError(null);
             setNotice(null);
+            // Native `required` accepts "," or whitespace, which would save as an empty list
+            const missing = (
+              [
+                ["Offering", form.offering.trim()],
+                ["Territory", list(form.territory).length],
+                ["Industries", list(form.industries).length],
+                ["Buyer roles", list(form.buyerRoles).length],
+                ["Event window", Number(form.eventWindowDays) > 0],
+              ] as const
+            )
+              .filter(([, ok]) => !ok)
+              .map(([name]) => name);
+            if (missing.length) {
+              setError(`Please fill in: ${missing.join(", ")}.`);
+              return;
+            }
             try {
               const res = await saveOffer(workspaceId, {
                 offering: form.offering,
@@ -102,12 +127,16 @@ function OfferSettings({ workspaceId }: { workspaceId: string }) {
               setStructured(res.structuredQuery);
               setUnsupported(res.unsupportedFilters);
               setNotice("Saved.");
+              setSavedOpen(true);
             } catch (err) {
               setError(err instanceof Error ? err.message : "Could not save");
             }
           }}
         >
-          <Field label="Offering">
+          <p className="text-xs text-[var(--muted)]">
+            Fields marked <span className="text-[var(--red)]">*</span> are required.
+          </p>
+          <Field label="Offering" required>
             <input
               className={inputClass}
               required
@@ -117,14 +146,32 @@ function OfferSettings({ workspaceId }: { workspaceId: string }) {
             />
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Territory">
-              <input className={inputClass} value={form.territory} onChange={set("territory")} placeholder="e.g. United Kingdom, Ireland" />
+            <Field label="Territory" required>
+              <input
+                className={inputClass}
+                required
+                value={form.territory}
+                onChange={set("territory")}
+                placeholder="e.g. United Kingdom, Ireland"
+              />
             </Field>
-            <Field label="Industries">
-              <input className={inputClass} value={form.industries} onChange={set("industries")} placeholder="e.g. Financial Services, Healthcare" />
+            <Field label="Industries" required>
+              <input
+                className={inputClass}
+                required
+                value={form.industries}
+                onChange={set("industries")}
+                placeholder="e.g. Financial Services, Healthcare"
+              />
             </Field>
-            <Field label="Buyer roles">
-              <input className={inputClass} value={form.buyerRoles} onChange={set("buyerRoles")} placeholder="e.g. CIO, Head of Infrastructure" />
+            <Field label="Buyer roles" required>
+              <input
+                className={inputClass}
+                required
+                value={form.buyerRoles}
+                onChange={set("buyerRoles")}
+                placeholder="e.g. CIO, Head of Infrastructure"
+              />
             </Field>
             <Field label="Company sizes (employees)">
               <input className={inputClass} value={form.companySizes} onChange={set("companySizes")} placeholder="e.g. 200-1000, 1000+" />
@@ -132,9 +179,13 @@ function OfferSettings({ workspaceId }: { workspaceId: string }) {
             <Field label="Exclusions (domains to never return)">
               <input className={inputClass} value={form.exclusions} onChange={set("exclusions")} placeholder="e.g. competitor.com, existingclient.co.uk" />
             </Field>
-            <Field label="Event window (days, older = stale)">
+            <Field label="Event window (days, older = stale)" required>
               <input
                 className={inputClass}
+                required
+                type="number"
+                min={1}
+                max={3650}
                 inputMode="numeric"
                 value={form.eventWindowDays}
                 onChange={set("eventWindowDays")}
@@ -213,6 +264,39 @@ function OfferSettings({ workspaceId }: { workspaceId: string }) {
         </Button>
         <FormNotice message={gateNotice} />
       </Card>
+
+      {savedOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          onClick={() => setSavedOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="offer-saved-title"
+            className="w-full max-w-md rounded-[10px] border-t-4 border-[var(--red)] bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="offer-saved-title" className="text-[18px]">
+              Targeting saved
+            </h2>
+            <p className="mt-2 text-sm text-[var(--muted)]">
+              Your offer and targeting are now the defaults for discovery. Next step: head to Discover to find prospects
+              that match.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button onClick={() => setSavedOpen(false)}>Stay here</Button>
+              <Link
+                href="/discover/search"
+                autoFocus
+                className="inline-flex items-center justify-center rounded-[7px] border border-transparent bg-[var(--red)] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[var(--red-hover)]"
+              >
+                Go to Discover →
+              </Link>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

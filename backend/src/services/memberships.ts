@@ -12,7 +12,6 @@ import { conflict, forbidden, notFound, validationError } from "../utils/errors.
 import { newId } from "../utils/ids.js";
 import { hashPassword } from "../auth/password.js";
 import { writeAudit } from "./audit.js";
-import { randomBytes } from "node:crypto";
 import { forgetMemberships } from "../middleware/requireMembership.js";
 import { forgetUserSessions } from "../auth/session.js";
 
@@ -39,6 +38,8 @@ export async function grantMembership(input: {
   email: string;
   name?: string;
   role: MembershipRole;
+  /** Admin-chosen password, required when the email has no account yet */
+  password?: string;
   actorUserId: string;
 }) {
   if (!membershipRoles.includes(input.role)) {
@@ -54,19 +55,24 @@ export async function grantMembership(input: {
 
   const email = input.email.trim().toLowerCase();
   let [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
-  let temporaryPassword: string | undefined;
+  // An existing account keeps its own password; only new people get the admin's one
+  const existingAccount = Boolean(user);
 
   if (!user) {
-    temporaryPassword = generateTemporaryPassword();
+    if (!input.password || input.password.length < 8) {
+      throw validationError("Set a password of at least 8 characters for this new member");
+    }
     const userId = newId("usr");
     await db.insert(users).values({
       id: userId,
       email,
       name: input.name?.trim() || email.split("@")[0] || "User",
-      passwordHash: await hashPassword(temporaryPassword),
-      mustChangePassword: true,
+      passwordHash: await hashPassword(input.password),
     });
     [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  } else if (user.isPlatformAdmin) {
+    // The app owner's account stays outside every tenant, so no tenant admin can manage it
+    throw forbidden("This email belongs to the platform admin and can't be added to a workspace");
   }
 
   const existing = await db
@@ -96,7 +102,7 @@ export async function grantMembership(input: {
     });
     return {
       membership: { ...existing[0], role: input.role, revokedAt: null },
-      temporaryPassword,
+      existingAccount,
     };
   }
 
@@ -121,7 +127,7 @@ export async function grantMembership(input: {
   });
 
   const [row] = await db.select().from(memberships).where(eq(memberships.id, id)).limit(1);
-  return { membership: row!, temporaryPassword };
+  return { membership: row!, existingAccount };
 }
 
 export async function revokeMembership(input: {
@@ -167,12 +173,9 @@ export async function revokeMembership(input: {
   return updated!;
 }
 
-export function generateTemporaryPassword(): string {
-  return randomBytes(12).toString("base64url");
-}
-
 /**
- * Admin reset of a member's password. Allowed only when every active membership
+ * Admin sets a new password for a member (no forced change; they can change it
+ * themselves later). Allowed only when every active membership
  * of that user belongs to the admin's tenant, so one tenant can never take over
  * an account that also has access to another tenant.
  */
@@ -180,8 +183,10 @@ export async function resetMemberPassword(input: {
   tenantId: string;
   workspaceId: string;
   membershipId: string;
+  newPassword: string;
   actorUserId: string;
 }) {
+  if (input.newPassword.length < 8) throw validationError("Password must be at least 8 characters");
   const db = getDb();
   const [row] = await db
     .select()
@@ -206,13 +211,14 @@ export async function resetMemberPassword(input: {
   if (others.some((m) => m.tenantId !== input.tenantId)) {
     throw forbidden("This person also belongs to another organization; they must reset it themselves");
   }
+  const [target] = await db.select({ isPlatformAdmin: users.isPlatformAdmin }).from(users).where(eq(users.id, row.userId)).limit(1);
+  if (target?.isPlatformAdmin) throw forbidden("The platform admin's password can't be reset from a workspace");
 
-  const temporaryPassword = generateTemporaryPassword();
   await db
     .update(users)
     .set({
-      passwordHash: await hashPassword(temporaryPassword),
-      mustChangePassword: true,
+      passwordHash: await hashPassword(input.newPassword),
+      mustChangePassword: false,
       passwordChangedAt: new Date(),
     })
     .where(eq(users.id, row.userId));
@@ -228,5 +234,5 @@ export async function resetMemberPassword(input: {
     entityType: "membership",
     entityId: row.id,
   });
-  return { temporaryPassword };
+  return { ok: true };
 }

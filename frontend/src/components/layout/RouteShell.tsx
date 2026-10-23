@@ -12,8 +12,9 @@ export function RouteShell({ children }: { children: React.ReactNode }) {
     return <AuthLayout>{children}</AuthLayout>;
   }
 
-  // `/` redirects to login; avoid portal flash while redirecting
-  if (pathname === "/") {
+  // `/` redirects to login; avoid portal flash while redirecting.
+  // `/platform` is the app owner's console, outside any workspace.
+  if (pathname === "/" || pathname === "/platform" || pathname.startsWith("/platform/")) {
     return <>{children}</>;
   }
 

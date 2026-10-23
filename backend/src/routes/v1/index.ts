@@ -14,6 +14,7 @@ import { outcomeRoutes } from "./outcomes.js";
 import { membershipRoutes } from "./memberships.js";
 import { suppressionRoutes } from "./suppressions.js";
 import { evidenceRoutes } from "./evidence.js";
+import { platformRoutes } from "./platform.js";
 
 export async function v1Routes(app: FastifyInstance) {
   await authRoutes(app);
@@ -31,4 +32,5 @@ export async function v1Routes(app: FastifyInstance) {
   await handoffRoutes(app);
   await draftRoutes(app);
   await outcomeRoutes(app);
+  await platformRoutes(app);
 }

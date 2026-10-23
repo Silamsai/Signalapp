@@ -8,7 +8,7 @@ import { formatDate } from "../../lib/utils/dates";
 import { StatusBadge } from "../common/StatusBadge";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
-import { Field, FormError, humanize, inputClass } from "../ui/Field";
+import { Field, FormError, FormNotice, humanize, inputClass } from "../ui/Field";
 
 const REASONS = [
   "incomplete_evidence",
@@ -20,6 +20,13 @@ const REASONS = [
   "existing_relationship",
   "other",
 ];
+
+const SUCCESS: Record<string, string> = {
+  ready_for_review: "Submitted for review. A sales reviewer will pick it up from Sales acceptance.",
+  accepted: "Accepted and assigned to the owner.",
+  needs_research: "Returned to research.",
+  rejected: "Rejected.",
+};
 
 export function AcceptanceActions({
   accountId,
@@ -48,6 +55,13 @@ export function AcceptanceActions({
   const [reasonDetail, setReasonDetail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Don't carry one user's confirmation over to whoever signs in next in the same tab
+  useEffect(() => {
+    setNotice(null);
+    setError(null);
+  }, [user?.id, accountId]);
 
   const isReviewer = can("accept");
   useEffect(() => {
@@ -60,10 +74,12 @@ export function AcceptanceActions({
   async function transition(toState: string, extra: Record<string, string | undefined> = {}) {
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       await transitionAcceptance(accountId, workspaceId, { toState, expectedVersion: version, ...extra });
       setReasonCategory("");
       setReasonDetail("");
+      setNotice(SUCCESS[toState] ?? "Saved.");
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transition failed");
@@ -182,6 +198,7 @@ export function AcceptanceActions({
       ) : null}
 
       <FormError message={error} />
+      <FormNotice message={notice} />
 
       {decisions.length ? (
         <div className="mt-5 border-t border-[var(--line)] pt-4">

@@ -75,7 +75,13 @@ export async function authRoutes(app: FastifyInstance) {
     });
 
     return {
-      user: { id: user.id, email: user.email, name: user.name, mustChangePassword: user.mustChangePassword },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        mustChangePassword: user.mustChangePassword,
+        isPlatformAdmin: user.isPlatformAdmin,
+      },
     };
   });
 
@@ -83,7 +89,7 @@ export async function authRoutes(app: FastifyInstance) {
     const body = z
       .object({
         currentPassword: z.string().min(1),
-        newPassword: z.string().min(12, "New password must be at least 12 characters").max(200),
+        newPassword: z.string().min(8, "New password must be at least 8 characters").max(200),
       })
       .parse(req.body);
     if (body.newPassword === body.currentPassword) {
@@ -127,6 +133,7 @@ export async function authRoutes(app: FastifyInstance) {
         email: req.actor!.email,
         name: req.actor!.name,
         mustChangePassword: req.actor!.mustChangePassword,
+        isPlatformAdmin: req.actor!.isPlatformAdmin,
       },
     };
   });

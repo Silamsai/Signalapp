@@ -17,12 +17,15 @@ function PortalInner({ children }: { children: React.ReactNode }) {
   const sections = workspaceId ? visibleSections(can) : [];
   const allowedHere =
     sections.some((s) => pathname.startsWith(s.prefix)) || pathname === "/settings/how-it-works" || onPasswordPage;
-  const needsRedirect = (mustChange && !onPasswordPage) || (Boolean(workspaceId) && !allowedHere);
+  // The platform admin has no workspace; their home is the platform console
+  const toPlatform = !loading && !mustChange && Boolean(user?.isPlatformAdmin) && !workspaceId;
+  const needsRedirect = toPlatform || (mustChange && !onPasswordPage) || (Boolean(workspaceId) && !allowedHere);
 
   useEffect(() => {
     if (unauthorized) router.replace("/login");
-    else if (needsRedirect) router.replace(mustChange ? "/settings/password" : homeFor(can));
-  }, [unauthorized, needsRedirect, mustChange, router, can]);
+    else if (needsRedirect)
+      router.replace(toPlatform ? "/platform" : mustChange ? "/settings/password" : homeFor(can));
+  }, [unauthorized, needsRedirect, toPlatform, mustChange, router, can]);
 
   if (unauthorized || needsRedirect) {
     return <LoadingState label="Redirecting…" />;

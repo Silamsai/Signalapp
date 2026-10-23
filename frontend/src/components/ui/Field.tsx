@@ -7,17 +7,25 @@ export const inputClass =
 export function Field({
   label,
   hint,
+  required,
   children,
   className = "",
 }: {
   label: string;
   hint?: string;
+  /** Shows a red asterisk; the control itself still needs `required`. */
+  required?: boolean;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <label className={`block text-xs font-semibold text-[var(--muted)] ${className}`}>
       {label}
+      {required ? (
+        <span aria-hidden="true" className="ml-0.5 text-[var(--red)]">
+          *
+        </span>
+      ) : null}
       {children}
       {hint ? <span className="mt-1 block font-normal">{hint}</span> : null}
     </label>

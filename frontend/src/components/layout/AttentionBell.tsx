@@ -8,7 +8,7 @@ import { listAccounts } from "../../lib/api/accounts";
 import { listTasks } from "../../lib/api/tasks";
 import { listSharedHandoffs } from "../../lib/api/handoffs";
 
-type Item = { key: string; Icon: LucideIcon; label: string; count: number; href: string };
+export type BellItem = { key: string; Icon: LucideIcon; label: string; count: number; href: string };
 
 /**
  * Header bell: work waiting for the signed-in person, computed from live data
@@ -16,13 +16,11 @@ type Item = { key: string; Icon: LucideIcon; label: string; count: number; href:
  */
 export function AttentionBell() {
   const { workspaceId, user, can } = useWorkspace();
-  const [items, setItems] = useState<Item[]>([]);
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [items, setItems] = useState<BellItem[]>([]);
 
   const load = useCallback(async () => {
     if (!workspaceId || !user) return;
-    const jobs: Array<Promise<Item | null>> = [];
+    const jobs: Array<Promise<BellItem | null>> = [];
     if (can("view_tasks")) {
       jobs.push(
         listTasks(workspaceId, { ownerUserId: user.id, due: "overdue" }).then((r) => ({
@@ -77,6 +75,14 @@ export function AttentionBell() {
     return () => clearInterval(t);
   }, [load]);
 
+  return <BellMenu items={items} onOpen={() => void load()} />;
+}
+
+/** Bell button with a count badge and a dropdown of linked items. */
+export function BellMenu({ items, onOpen }: { items: BellItem[]; onOpen?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
   // Close on outside click or Escape
   useEffect(() => {
     if (!open) return;
@@ -103,7 +109,7 @@ export function AttentionBell() {
         aria-expanded={open}
         aria-haspopup="true"
         onClick={() => {
-          if (!open) void load();
+          if (!open) onOpen?.();
           setOpen((o) => !o);
         }}
         className={`relative flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${

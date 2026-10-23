@@ -18,11 +18,12 @@ export function listMemberships(workspaceId: string) {
 
 export function grantMembership(
   workspaceId: string,
-  body: { email: string; name?: string; role: string },
+  body: { email: string; name?: string; role: string; password?: string },
 ) {
   return api<{
     membership: { id: string };
-    temporaryPassword?: string;
+    /** The email already had an account: it kept its own password */
+    existingAccount: boolean;
   }>(`/v1/workspaces/${workspaceId}/memberships`, {
     method: "POST",
     body: JSON.stringify(body),
@@ -36,9 +37,9 @@ export function revokeMembership(workspaceId: string, membershipId: string) {
   );
 }
 
-export function resetMemberPassword(workspaceId: string, membershipId: string) {
-  return api<{ temporaryPassword: string }>(
+export function resetMemberPassword(workspaceId: string, membershipId: string, newPassword: string) {
+  return api<{ ok: boolean }>(
     `/v1/workspaces/${workspaceId}/memberships/${membershipId}/reset-password`,
-    { method: "POST", body: JSON.stringify({}) },
+    { method: "POST", body: JSON.stringify({ newPassword }) },
   );
 }

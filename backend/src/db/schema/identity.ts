@@ -46,6 +46,8 @@ export const users = pgTable(
     /** Set for admin-issued temporary passwords; cleared when the user picks their own */
     mustChangePassword: boolean("must_change_password").notNull().default(false),
     passwordChangedAt: timestamp("password_changed_at", { withTimezone: true }),
+    /** App owner: sees counts across all tenants, never tenant records. Set only by the seed script. */
+    isPlatformAdmin: boolean("is_platform_admin").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("users_email_uidx").on(t.email)],

@@ -251,49 +251,58 @@ describe.skipIf(!enabled)("Phase 1 release gates", () => {
 
   it("gate 2: delegated users see only granted workspaces; revoked users lose access on the next request", async () => {
     const delegateEmail = `delegate.${Date.now()}@agency.test`;
+    // A new member needs the admin to set a password
+    expect(
+      (await call("admin", "POST", `/v1/workspaces/${ws.A.workspaceId}/memberships`, { email: delegateEmail, role: "researcher" }))
+        .statusCode,
+    ).toBe(400);
     const grant = await call("admin", "POST", `/v1/workspaces/${ws.A.workspaceId}/memberships`, {
       email: delegateEmail,
       role: "researcher",
+      password: "admin-set-password",
     });
     expect(grant.statusCode, grant.body).toBe(200);
-    const { membership, temporaryPassword } = grant.json();
+    const { membership } = grant.json();
     const login = await app.inject({
       method: "POST",
       url: "/v1/auth/login",
-      payload: { email: delegateEmail, password: temporaryPassword },
+      payload: { email: delegateEmail, password: "admin-set-password" },
     });
     expect(login.statusCode).toBe(200);
-    expect(login.json().user.mustChangePassword).toBe(true);
+    // The admin-set password works straight away; the member may change it later
+    expect(login.json().user.mustChangePassword).toBe(false);
     cookies.delegate = String(login.headers["set-cookie"]).split(";")[0]!;
-    // A temporary password only allows setting a new one
-    expect((await call("delegate", "GET", "/v1/workspaces")).statusCode).toBe(403);
+    expect((await call("delegate", "GET", "/v1/workspaces")).statusCode).toBe(200);
     expect(
       (await call("delegate", "POST", "/v1/auth/change-password", { currentPassword: "wrong", newPassword: "a-new-long-password" }))
         .statusCode,
     ).toBe(400);
     const changed = await call("delegate", "POST", "/v1/auth/change-password", {
-      currentPassword: temporaryPassword,
+      currentPassword: "admin-set-password",
       newPassword: "a-new-long-password",
     });
     expect(changed.statusCode, changed.body).toBe(200);
-    // Admin reset issues a new temporary password and signs the person out
-    const reset = await call("admin", "POST", `/v1/workspaces/${ws.A.workspaceId}/memberships/${membership.id}/reset-password`);
+    // Admin sets a new password and the person is signed out
+    const reset = await call("admin", "POST", `/v1/workspaces/${ws.A.workspaceId}/memberships/${membership.id}/reset-password`, {
+      newPassword: "admin-reset-password",
+    });
     expect(reset.statusCode, reset.body).toBe(200);
     expect((await call("delegate", "GET", "/v1/workspaces")).statusCode).toBe(401);
     // Another tenant's admin cannot reset this member
     expect(
-      (await call("adminB", "POST", `/v1/workspaces/${ws.A.workspaceId}/memberships/${membership.id}/reset-password`)).statusCode,
+      (
+        await call("adminB", "POST", `/v1/workspaces/${ws.A.workspaceId}/memberships/${membership.id}/reset-password`, {
+          newPassword: "takeover-password",
+        })
+      ).statusCode,
     ).toBe(403);
     const relogin = await app.inject({
       method: "POST",
       url: "/v1/auth/login",
-      payload: { email: delegateEmail, password: reset.json().temporaryPassword },
+      payload: { email: delegateEmail, password: "admin-reset-password" },
     });
+    expect(relogin.statusCode).toBe(200);
     cookies.delegate = String(relogin.headers["set-cookie"]).split(";")[0]!;
-    await call("delegate", "POST", "/v1/auth/change-password", {
-      currentPassword: reset.json().temporaryPassword,
-      newPassword: "another-long-password",
-    });
     const wsList = (await call("delegate", "GET", "/v1/workspaces")).json().workspaces;
     expect(wsList.map((w: { id: string }) => w.id)).toEqual([ws.A.workspaceId]);
     expect((await call("delegate", "GET", `/v1/workspaces/${ws.A.workspaceId}/accounts`)).statusCode).toBe(200);
