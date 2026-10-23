@@ -26,6 +26,8 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(cors, {
     origin: env.FRONTEND_ORIGIN,
     credentials: true,
+    // The plugin's default omits PUT/PATCH/DELETE, which browsers then block on preflight
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   });
   await app.register(cookie);
   // Each protected route authenticates once in its preHandler (one session lookup per request)

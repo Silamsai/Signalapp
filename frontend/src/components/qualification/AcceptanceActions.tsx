@@ -138,7 +138,7 @@ export function AcceptanceActions({
               </select>
             </Field>
             <Field label="Detail (optional)">
-              <input className={inputClass} value={reasonDetail} onChange={(e) => setReasonDetail(e.target.value)} />
+              <input className={inputClass} value={reasonDetail} onChange={(e) => setReasonDetail(e.target.value)} placeholder="e.g. No evidence newer than 6 months" />
             </Field>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -165,7 +165,7 @@ export function AcceptanceActions({
       {canReopen ? (
         <div className="mt-4 space-y-3">
           <Field label="Reason for reopening">
-            <input className={inputClass} value={reasonDetail} onChange={(e) => setReasonDetail(e.target.value)} />
+            <input className={inputClass} value={reasonDetail} onChange={(e) => setReasonDetail(e.target.value)} placeholder="e.g. New evidence of a refresh project" />
           </Field>
           <Button disabled={busy || !reasonDetail.trim()} onClick={() => transition("ready_for_review", { reasonDetail })}>
             Reopen for review

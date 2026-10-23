@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   downloadFile,
   getImport,
+  listImports,
   previewImport,
   startImport,
   type ImportPreview,
@@ -21,7 +22,16 @@ const FIELDS: Array<{ key: string; label: string; required?: boolean }> = [
   { key: "legal_name", label: "Legal name" },
 ];
 
-type Result = { id: string; status: string; totalRows: number; successRows: number; rowErrors: string[] };
+type Result = {
+  id: string;
+  status: string;
+  totalRows: number;
+  successRows: number;
+  rowErrors: string[];
+  createdAt?: string;
+};
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Two-step import: preview + column mapping, then a queued job with a row report (R2). */
 export function ImportCsvDialog({ workspaceId, onDone }: { workspaceId: string; onDone: () => void }) {
@@ -33,6 +43,37 @@ export function ImportCsvDialog({ workspaceId, onDone }: { workspaceId: string; 
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // After a refresh: show the last import report, or keep following one still in progress
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { imports } = await listImports(workspaceId);
+        const last = imports[0];
+        if (!last || cancelled) return;
+        if (last.status === "completed" || last.status === "failed") return setResult(last);
+        setStatus("An import is still processing…");
+        for (let i = 0; i < 120 && !cancelled; i++) {
+          await sleep(1500);
+          const { import: job } = await getImport(last.id, workspaceId);
+          if (job.status === "completed" || job.status === "failed") {
+            if (cancelled) return;
+            setResult(job);
+            setStatus(null);
+            onDone();
+            return;
+          }
+        }
+      } catch {
+        // no import history to show
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per workspace
+  }, [workspaceId]);
 
   function reset() {
     setCsvText(null);
@@ -170,7 +211,8 @@ export function ImportCsvDialog({ workspaceId, onDone }: { workspaceId: string; 
       {result ? (
         <div className="mt-3 text-sm" role="status">
           <p className="font-semibold">
-            Import {result.status}: {result.successRows} of {result.totalRows} rows imported
+            {result.createdAt ? `Last import (${new Date(result.createdAt).toLocaleString()}) ` : "Import "}
+            {result.status}: {result.successRows} of {result.totalRows} rows imported
           </p>
           {result.rowErrors.length ? (
             <>

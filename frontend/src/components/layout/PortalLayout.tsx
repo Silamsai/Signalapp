@@ -10,7 +10,7 @@ function PortalInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { workspaceId, loading, error, unauthorized, can, user } = useWorkspace();
-  const onPasswordPage = pathname === "/account/password";
+  const onPasswordPage = pathname === "/settings/password";
   const mustChange = Boolean(user?.mustChangePassword);
 
   // Send each role to a section it can use (e.g. partners → shared handoffs)
@@ -21,7 +21,7 @@ function PortalInner({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (unauthorized) router.replace("/login");
-    else if (needsRedirect) router.replace(mustChange ? "/account/password" : homeFor(can));
+    else if (needsRedirect) router.replace(mustChange ? "/settings/password" : homeFor(can));
   }, [unauthorized, needsRedirect, mustChange, router, can]);
 
   if (unauthorized || needsRedirect) {

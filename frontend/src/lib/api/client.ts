@@ -12,10 +12,28 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
+/**
+ * Short-lived cache for GET requests so moving between sections is instant.
+ * Identical in-flight GETs share one request. Any write clears the cache, and
+ * endpoints that report live progress are never cached.
+ */
+const GET_TTL_MS = 15_000;
+const NEVER_CACHE = [
+  /^\/v1\/auth\//,
+  /^\/v1\/research-runs\//,
+  /^\/v1\/imports\//,
+  /\/research-runs(\?|$)/,
+  /\/imports(\?|$)/,
+];
+const getCache = new Map<string, { data: unknown; at: number }>();
+const inFlight = new Map<string, Promise<unknown>>();
+
+export function clearApiCache() {
+  getCache.clear();
+  inFlight.clear();
+}
+
+async function request<T>(path: string, options: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     credentials: "include",
@@ -37,6 +55,29 @@ export async function api<T>(
     );
   }
   return data as T;
+}
+
+export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const method = (options.method ?? "GET").toUpperCase();
+  if (method !== "GET") {
+    clearApiCache();
+    return request<T>(path, options);
+  }
+  if (NEVER_CACHE.some((re) => re.test(path))) return request<T>(path, options);
+
+  const hit = getCache.get(path);
+  if (hit && Date.now() - hit.at < GET_TTL_MS) return hit.data as T;
+  const pending = inFlight.get(path);
+  if (pending) return pending as Promise<T>;
+
+  const p = request<T>(path, options)
+    .then((data) => {
+      getCache.set(path, { data, at: Date.now() });
+      return data;
+    })
+    .finally(() => inFlight.delete(path));
+  inFlight.set(path, p);
+  return p;
 }
 
 export { API_URL };

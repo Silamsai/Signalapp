@@ -525,8 +525,8 @@ describe.skipIf(!enabled)("Phase 1 release gates", () => {
 
     // Discovery never creates a candidate for a suppressed domain
     provider.items = [
-      { canonicalUrl: "https://theta.co.uk", title: "Theta" },
-      { canonicalUrl: "https://iota.co.uk", title: "Iota | Home", country: "GB" },
+      ukItem(60, { title: "Theta expands", excerpt: "Theta expands", subject: { companyName: "Theta", companyWebsite: "theta.co.uk", eventSummary: "Theta expands" } }),
+      ukItem(61, { title: "Iota opens site", excerpt: "Iota opens site", subject: { companyName: "Iota", companyWebsite: "iota.co.uk", eventSummary: "Iota opens a site" } }),
     ];
     const run = await call("researcher", "POST", `/v1/workspaces/${ws.A.workspaceId}/research-runs`, {
       mode: "discovery",
@@ -538,7 +538,44 @@ describe.skipIf(!enabled)("Phase 1 release gates", () => {
     const result = (await call("researcher", "GET", `/v1/research-runs/${run.json().researchRunId}?workspaceId=${ws.A.workspaceId}`)).json()
       .researchRun.result;
     expect(result.skippedSuppressed).toBe(1);
-    expect(result.candidateAccountIds).toHaveLength(1);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].domain).toBe("iota.co.uk");
+    const csv = await call("researcher", "GET", `/v1/research-runs/${run.json().researchRunId}/results.csv?workspaceId=${ws.A.workspaceId}`);
+    expect(csv.statusCode).toBe(200);
+    expect(csv.body).toContain("iota.co.uk");
+    expect(csv.body).not.toContain("theta.co.uk");
+  });
+
+  it("discovery ties articles to companies, attaches cited evidence and flags uncertain identities", async () => {
+    provider.items = [
+      ukItem(70, { title: "Nu opens Leeds data centre", excerpt: "Nu opens Leeds data centre", subject: { companyName: "Nu Insurance", companyWebsite: "https://www.nu-insurance.co.uk/about", eventSummary: "Nu opened a Leeds data centre" } }),
+      ukItem(71, { title: "Nu hiring infra engineers", excerpt: "Nu is hiring six infrastructure engineers", subject: { companyName: "Nu Insurance", companyWebsite: "nu-insurance.co.uk", eventSummary: "Nu is hiring" } }),
+      ukItem(72, { title: "Xi refresh", excerpt: "Xi plans a server refresh", subject: { companyName: "Xi Logistics", companyWebsite: null, eventSummary: "Xi plans a refresh" } }),
+      ukItem(73, { title: "Market roundup", excerpt: "Several firms expand", subject: { companyName: null, companyWebsite: null, eventSummary: null } }),
+    ];
+    const run = await call("researcher", "POST", `/v1/workspaces/${ws.A.workspaceId}/research-runs`, {
+      mode: "discovery",
+      query: "UK insurers expanding data centres",
+      budget: 4,
+    });
+    await runQueuedResearch();
+    const result = (await call("researcher", "GET", `/v1/research-runs/${run.json().researchRunId}?workspaceId=${ws.A.workspaceId}`)).json()
+      .researchRun.result;
+    expect(result.unmatched).toBe(1);
+    // Saved searches can be listed again after a page refresh
+    const recent = (await call("researcher", "GET", `/v1/workspaces/${ws.A.workspaceId}/research-runs?mode=discovery&limit=5`)).json().runs;
+    expect(recent[0].id).toBe(run.json().researchRunId);
+    expect(recent[0].companies).toBe(result.rows.length);
+    expect((await call("partner", "GET", `/v1/workspaces/${ws.A.workspaceId}/research-runs?mode=discovery`)).statusCode).toBe(403);
+    const nu = result.rows.find((r: { domain: string }) => r.domain === "nu-insurance.co.uk");
+    const xi = result.rows.find((r: { name: string }) => r.name === "Xi Logistics");
+    expect(nu.sources).toBe(2);
+    expect(nu.identityNeedsReview).toBe(false);
+    expect(xi.identityNeedsReview).toBe(true);
+    const brief = (await call("researcher", "GET", `/v1/accounts/${nu.accountId}/brief?workspaceId=${ws.A.workspaceId}`)).json();
+    expect(brief.account.researchState).toBe("researched");
+    expect(brief.evidence).toHaveLength(2);
+    expect(brief.evidence.every((e: { reviewedAt: string | null }) => e.reviewedAt === null)).toBe(true);
   });
 
   it("gate 9: a recorded handoff stays unshared until authorized; partners see only permitted fields", async () => {

@@ -26,6 +26,12 @@ export type NormalizedEvidenceItem = {
   signalKind?: string;
   fitHint?: number;
   qualityHint?: number;
+  /** Discovery: the company the article is about, as extracted by the provider */
+  subject?: {
+    companyName: string | null;
+    companyWebsite: string | null;
+    eventSummary: string | null;
+  };
 };
 
 export type NormalizedDiscovery = {

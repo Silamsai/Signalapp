@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { getDb } from "../../db/client.js";
 import {
   accountIdentities,
@@ -19,17 +19,10 @@ import { reconcileUsage, refundResearchBudget } from "../../services/budget.js";
 import { persistNormalizedEvidence } from "../../services/evidence.js";
 import { activeSuppressionSet, isSuppressed } from "../../services/suppressions.js";
 import { newId } from "../../utils/ids.js";
-import { companyNameKey, hostnameOf, normalizeDomain } from "../../utils/normalize.js";
+import { companyNameKey, normalizeDomain } from "../../utils/normalize.js";
 import { redactString } from "../../utils/redact.js";
 
 type FetchedResult = { stage: "fetched"; providerRunId: string; items: NormalizedEvidenceItem[] };
-
-function companyNameFromTitle(title: string | undefined, domain: string): string {
-  const first = (title ?? "").split(/\s[|\-–—:]\s/)[0]?.trim();
-  if (first && first.length >= 2 && first.length <= 120) return first;
-  const label = domain.split(".")[0] ?? domain;
-  return label.charAt(0).toUpperCase() + label.slice(1);
-}
 
 /**
  * Research job. Usage is charged exactly once per run: the provider usage row is
@@ -148,7 +141,7 @@ export async function handleResearchRun(
 
     let summary: Record<string, unknown>;
     if (mode === "discovery") {
-      summary = await createCandidateAccounts(run, fetched.items);
+      summary = await accountsFromSignals(run, fetched.items);
     } else if (run.accountId) {
       const result = await persistNormalizedEvidence({
         tenantId: run.tenantId,
@@ -233,80 +226,150 @@ export async function handleResearchRun(
   }
 }
 
-/** Discovery: turn company results into unresearched candidate accounts (R2). */
-async function createCandidateAccounts(
-  run: typeof researchRuns.$inferSelect,
-  items: NormalizedEvidenceItem[],
-) {
+export type DiscoveryRow = {
+  accountId: string;
+  name: string;
+  domain: string | null;
+  country: string | null;
+  isNew: boolean;
+  /** Company identity could not be confirmed (no website, or name-only match) */
+  identityNeedsReview: boolean;
+  trigger: { title: string | null; summary: string | null; eventDate: string | null; url: string };
+  sources: number;
+  fitScore: number | null;
+};
+
+/**
+ * Discovery: each article is tied to the company it is about (entity matching),
+ * grouped per company, and stored as cited evidence on that account, then scored.
+ * Uncertain identities are flagged for review rather than guessed (spec §6, R2).
+ */
+async function accountsFromSignals(run: typeof researchRuns.$inferSelect, items: NormalizedEvidenceItem[]) {
   const db = getDb();
   const suppressed = await activeSuppressionSet(run.workspaceId);
   const existing = await db
-    .select({ id: accounts.id, name: accounts.name, domain: accounts.domain })
+    .select({ id: accounts.id, name: accounts.name, domain: accounts.domain, country: accounts.country })
     .from(accounts)
-    .where(and(eq(accounts.workspaceId, run.workspaceId), eq(accounts.tenantId, run.tenantId)));
-  const byDomain = new Map(existing.filter((a) => a.domain).map((a) => [a.domain!, a]));
-  const byName = new Map(existing.map((a) => [companyNameKey(a.name), a]));
+    .where(and(eq(accounts.workspaceId, run.workspaceId), eq(accounts.tenantId, run.tenantId), isNull(accounts.mergedIntoId)));
+  type Known = { id: string; name: string; domain: string | null; country: string | null };
+  const byDomain = new Map<string, Known>(existing.filter((a) => a.domain).map((a) => [a.domain!, a]));
+  const byName = new Map<string, Known>(existing.map((a) => [companyNameKey(a.name), a]));
 
-  const created: string[] = [];
-  const alreadyKnown: string[] = [];
+  type Group = Known & { isNew: boolean; review: boolean; items: NormalizedEvidenceItem[] };
+  const groups = new Map<string, Group>();
+  let unmatched = 0;
   let skippedSuppressed = 0;
 
   for (const item of items) {
-    const domain = normalizeDomain(hostnameOf(item.canonicalUrl));
-    if (!domain) continue;
-    if (suppressed.has(domain)) {
+    const name = item.subject?.companyName?.trim() || null;
+    const domain = normalizeDomain(item.subject?.companyWebsite);
+    if (!name && !domain) {
+      unmatched++;
+      continue;
+    }
+    if (domain && suppressed.has(domain)) {
       skippedSuppressed++;
       continue;
     }
-    const known = byDomain.get(domain);
-    if (known) {
-      alreadyKnown.push(known.id);
-      continue;
+
+    let target = domain ? byDomain.get(domain) : undefined;
+    let review = !domain;
+    if (!target && name) {
+      const sameName = byName.get(companyNameKey(name));
+      // A same-name account with a different website may be a different legal entity
+      if (sameName && (!domain || !sameName.domain)) {
+        target = sameName;
+        review = true;
+      }
     }
-    const name = companyNameFromTitle(item.title, domain);
-    const id = newId("acc");
-    await db.insert(accounts).values({
-      id,
-      tenantId: run.tenantId,
-      workspaceId: run.workspaceId,
-      name,
-      domain,
-      country: item.country ?? null,
-      source: "discovery",
-      // Discovered accounts stay unresearched until a research run completes
-      researchState: "unresearched",
-      acceptanceState: "draft",
-    });
-    await db
-      .insert(accountIdentities)
-      .values({
-        id: newId("aid"),
+
+    let isNew = false;
+    if (!target) {
+      const id = newId("acc");
+      const accountName = name ?? domain!;
+      await db.insert(accounts).values({
+        id,
         tenantId: run.tenantId,
         workspaceId: run.workspaceId,
-        accountId: id,
-        kind: "domain",
-        value: domain,
-      })
-      .onConflictDoNothing();
-    const nameDup = byName.get(companyNameKey(name));
-    if (nameDup) {
-      await db.insert(mergeCandidates).values({
-        id: newId("mrg"),
-        tenantId: run.tenantId,
-        workspaceId: run.workspaceId,
-        accountIdA: nameDup.id,
-        accountIdB: id,
-        reason: `Same company name as "${nameDup.name}" with different domain ${domain}`,
+        name: accountName,
+        domain,
+        country: item.country ?? null,
+        source: "discovery",
+        researchState: "researching",
+        acceptanceState: "draft",
       });
+      if (domain) {
+        await db
+          .insert(accountIdentities)
+          .values({ id: newId("aid"), tenantId: run.tenantId, workspaceId: run.workspaceId, accountId: id, kind: "domain", value: domain })
+          .onConflictDoNothing();
+      }
+      const sameName = name ? byName.get(companyNameKey(name)) : undefined;
+      if (sameName) {
+        await db.insert(mergeCandidates).values({
+          id: newId("mrg"),
+          tenantId: run.tenantId,
+          workspaceId: run.workspaceId,
+          accountIdA: sameName.id,
+          accountIdB: id,
+          reason: `Same company name as "${sameName.name}" with ${domain ? `different domain ${domain}` : "no domain"}`,
+        });
+      }
+      target = { id, name: accountName, domain, country: item.country ?? null };
+      if (domain) byDomain.set(domain, target);
+      if (name && !sameName) byName.set(companyNameKey(name), target);
+      isNew = true;
     }
-    byDomain.set(domain, { id, name, domain });
-    byName.set(companyNameKey(name), { id, name, domain });
-    created.push(id);
+
+    const g: Group = groups.get(target.id) ?? { ...target, isNew, review: false, items: [] };
+    g.review ||= review;
+    g.items.push({
+      ...item,
+      matchRationale: `Article identified ${name ?? domain} as the company${review ? " (identity not confirmed by website — check before relying on it)" : ""}`,
+      excerpt: item.excerpt ?? item.subject?.eventSummary ?? undefined,
+    });
+    groups.set(target.id, g);
   }
 
+  const rows: DiscoveryRow[] = [];
+  for (const g of groups.values()) {
+    const result = await persistNormalizedEvidence({
+      tenantId: run.tenantId,
+      workspaceId: run.workspaceId,
+      accountId: g.id,
+      researchRunId: run.id,
+      items: g.items,
+    });
+    const [acct] = await db.select().from(accounts).where(eq(accounts.id, g.id)).limit(1);
+    const fitScore =
+      result.fitScore == null ? (acct?.fitScore ?? null) : Math.max(acct?.fitScore ?? 0, result.fitScore);
+    await db
+      .update(accounts)
+      .set({ researchState: "researched", fitScore, updatedAt: new Date() })
+      .where(eq(accounts.id, g.id));
+    const latest = [...g.items].sort((a, b) => (b.eventDate ?? "").localeCompare(a.eventDate ?? ""))[0]!;
+    rows.push({
+      accountId: g.id,
+      name: g.name,
+      domain: g.domain,
+      country: g.country,
+      isNew: g.isNew,
+      identityNeedsReview: g.review,
+      trigger: {
+        title: latest.title ?? null,
+        summary: latest.subject?.eventSummary ?? null,
+        eventDate: latest.eventDate ?? null,
+        url: latest.canonicalUrl,
+      },
+      sources: g.items.length,
+      fitScore,
+    });
+  }
+  rows.sort((a, b) => (b.fitScore ?? 0) - (a.fitScore ?? 0));
+
   return {
-    candidateAccountIds: created,
-    alreadyKnownAccountIds: alreadyKnown,
+    rows,
+    unmatched,
     skippedSuppressed,
     noResults: items.length === 0,
   };

@@ -19,9 +19,22 @@ declare module "fastify" {
   }
 }
 
+const MEMBERSHIP_TTL_MS = 30_000;
+const membershipCache = new Map<string, { ctx: MembershipContext; cachedAt: number }>();
+
+export function forgetMemberships() {
+  membershipCache.clear();
+}
+
 /** Resolve workspace access from authenticated, non-revoked membership (spec §4). */
 export async function loadMembership(req: FastifyRequest, workspaceId: string): Promise<MembershipContext> {
   if (!req.actor) throw unauthorized();
+  const cacheKey = `${req.actor.userId}|${workspaceId}`;
+  const cached = membershipCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < MEMBERSHIP_TTL_MS) {
+    req.membership = cached.ctx;
+    return cached.ctx;
+  }
   const db = getDb();
   const rows = await db
     .select({
@@ -51,6 +64,7 @@ export async function loadMembership(req: FastifyRequest, workspaceId: string): 
     role: row.role as MembershipRole,
     userId: req.actor.userId,
   };
+  membershipCache.set(cacheKey, { ctx, cachedAt: Date.now() });
   req.membership = ctx;
   return ctx;
 }

@@ -217,3 +217,18 @@ export async function downloadFile(path: string, filename: string) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+export type ImportJob = {
+  id: string;
+  status: string;
+  totalRows: number;
+  successRows: number;
+  errorRows: number;
+  rowErrors: string[];
+  createdAt: string;
+  completedAt: string | null;
+};
+
+export function listImports(workspaceId: string) {
+  return api<{ imports: ImportJob[] }>(`/v1/workspaces/${workspaceId}/imports`);
+}

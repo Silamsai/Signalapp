@@ -108,7 +108,13 @@ export function FactEditor({
         >
           <h3 className="text-[15px]">Qualification rationale</h3>
           <Field label="Why this account is worth sales time">
-            <textarea className={inputClass} rows={3} value={rationaleText} onChange={(e) => setRationaleText(e.target.value)} />
+            <textarea
+              className={inputClass}
+              rows={3}
+              value={rationaleText}
+              onChange={(e) => setRationaleText(e.target.value)}
+              placeholder="e.g. Opening a new Leeds data centre in Q1; current servers are five years old"
+            />
           </Field>
           <Button type="submit" disabled={busy || !rationaleText.trim()}>
             Save rationale
@@ -163,7 +169,7 @@ export function FactEditor({
           </div>
           {basis !== "unknown" ? (
             <Field label="Value">
-              <input className={inputClass} value={value} onChange={(e) => setValue(e.target.value)} />
+              <input className={inputClass} value={value} onChange={(e) => setValue(e.target.value)} placeholder="e.g. Private cloud for claims systems" />
             </Field>
           ) : null}
           {basis === "source_observed" ? (
@@ -190,8 +196,7 @@ export function FactEditor({
           ) : null}
           {basis === "prospect_confirmed" ? (
             <Field
-              label="Confirmation note (required)"
-              hint="Who said what, and when. An AI summary alone can't confirm a fact. You'll be recorded as the confirmer."
+              label="Confirmation note (required): who said what, and when"
             >
               <textarea
                 className={inputClass}

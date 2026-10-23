@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "../../db/client.js";
 import { importJobs } from "../../db/schema/index.js";
@@ -75,6 +75,30 @@ export async function importRoutes(app: FastifyInstance) {
 
       await enqueueCsvImport(id, body.csvText, body.mapping as Record<string, string> | undefined);
       return { importJobId: id, status: "queued" };
+    },
+  );
+
+  /** Recent imports, so the Accounts page can show the last import's report after a refresh. */
+  app.get(
+    "/v1/workspaces/:workspaceId/imports",
+    { preHandler: authenticateRequired },
+    async (req) => {
+      const { workspaceId } = req.params as { workspaceId: string };
+      const m = await loadMembership(req, workspaceId);
+      requireCap(m, "import");
+      const db = getDb();
+      const jobs = await db
+        .select()
+        .from(importJobs)
+        .where(and(eq(importJobs.workspaceId, m.workspaceId), eq(importJobs.tenantId, m.tenantId)))
+        .orderBy(desc(importJobs.createdAt))
+        .limit(5);
+      return {
+        imports: jobs.map(({ rowErrorsJson, mappingJson: _mapping, ...j }) => ({
+          ...j,
+          rowErrors: rowErrorsJson ? (JSON.parse(rowErrorsJson) as string[]) : [],
+        })),
+      };
     },
   );
 

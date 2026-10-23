@@ -89,7 +89,13 @@ export function TaskQueue({
                   >
                     <label className="block text-xs font-semibold text-[var(--muted)]">
                       {pending.kind === "complete" ? "Outcome (required)" : "Cancellation reason (required)"}
-                      <input autoFocus className={inputClass} value={text} onChange={(e) => setText(e.target.value)} />
+                      <input
+                        autoFocus
+                        className={inputClass}
+                        value={text}
+                        onChange={(e) => setText(e.target.value)}
+                        placeholder={pending.kind === "complete" ? "e.g. Spoke to IT lead, meeting being arranged" : "e.g. Duplicate of another task"}
+                      />
                     </label>
                     <FormError message={error} />
                     <div className="flex gap-2">

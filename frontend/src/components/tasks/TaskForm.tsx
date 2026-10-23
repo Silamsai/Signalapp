@@ -126,11 +126,17 @@ export function TaskForm({
             <input type="datetime-local" className={inputClass} value={due} onChange={(e) => setDue(e.target.value)} />
           </Field>
           <Field label="Timezone">
-            <input className={inputClass} value={timezone} onChange={(e) => setTimezone(e.target.value)} />
+            <input className={inputClass} value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="e.g. Europe/London" />
           </Field>
         </div>
         <Field label="Instruction">
-          <textarea className={inputClass} rows={2} value={instruction} onChange={(e) => setInstruction(e.target.value)} />
+          <textarea
+            className={inputClass}
+            rows={2}
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+            placeholder="e.g. Call the Head of Infrastructure about the Leeds expansion"
+          />
         </Field>
         {type === "follow_up" ? (
           <label className="flex items-center gap-2 text-sm">

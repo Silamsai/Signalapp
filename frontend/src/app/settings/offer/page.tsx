@@ -31,7 +31,7 @@ function OfferSettings({ workspaceId }: { workspaceId: string }) {
     companySizes: "",
     territory: "",
     exclusions: "",
-    eventWindowDays: "90",
+    eventWindowDays: "",
     naturalLanguageBrief: "",
   });
   const [structured, setStructured] = useState<Record<string, unknown> | null>(null);
@@ -108,30 +108,48 @@ function OfferSettings({ workspaceId }: { workspaceId: string }) {
           }}
         >
           <Field label="Offering">
-            <input className={inputClass} required value={form.offering} onChange={set("offering")} />
+            <input
+              className={inputClass}
+              required
+              value={form.offering}
+              onChange={set("offering")}
+              placeholder="e.g. Enterprise servers and managed infrastructure"
+            />
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Territory" hint="Country names or ISO codes, comma-separated (UK → GB)">
-              <input className={inputClass} value={form.territory} onChange={set("territory")} />
+            <Field label="Territory">
+              <input className={inputClass} value={form.territory} onChange={set("territory")} placeholder="e.g. United Kingdom, Ireland" />
             </Field>
             <Field label="Industries">
-              <input className={inputClass} value={form.industries} onChange={set("industries")} />
+              <input className={inputClass} value={form.industries} onChange={set("industries")} placeholder="e.g. Financial Services, Healthcare" />
             </Field>
             <Field label="Buyer roles">
-              <input className={inputClass} value={form.buyerRoles} onChange={set("buyerRoles")} />
+              <input className={inputClass} value={form.buyerRoles} onChange={set("buyerRoles")} placeholder="e.g. CIO, Head of Infrastructure" />
             </Field>
-            <Field label="Company sizes" hint="e.g. 200-1000, 1000+">
-              <input className={inputClass} value={form.companySizes} onChange={set("companySizes")} />
+            <Field label="Company sizes (employees)">
+              <input className={inputClass} value={form.companySizes} onChange={set("companySizes")} placeholder="e.g. 200-1000, 1000+" />
             </Field>
-            <Field label="Exclusions" hint="Domains to never return, comma-separated">
-              <input className={inputClass} value={form.exclusions} onChange={set("exclusions")} />
+            <Field label="Exclusions (domains to never return)">
+              <input className={inputClass} value={form.exclusions} onChange={set("exclusions")} placeholder="e.g. competitor.com, existingclient.co.uk" />
             </Field>
-            <Field label="Event window (days)" hint="Signals older than this count as stale">
-              <input className={inputClass} inputMode="numeric" value={form.eventWindowDays} onChange={set("eventWindowDays")} />
+            <Field label="Event window (days, older = stale)">
+              <input
+                className={inputClass}
+                inputMode="numeric"
+                value={form.eventWindowDays}
+                onChange={set("eventWindowDays")}
+                placeholder="e.g. 90"
+              />
             </Field>
           </div>
           <Field label="Natural-language brief">
-            <textarea className={inputClass} rows={3} value={form.naturalLanguageBrief} onChange={set("naturalLanguageBrief")} />
+            <textarea
+              className={inputClass}
+              rows={3}
+              value={form.naturalLanguageBrief}
+              onChange={set("naturalLanguageBrief")}
+              placeholder="e.g. UK banks and insurers expanding data centres or refreshing servers"
+            />
           </Field>
           <FormError message={error} />
           <FormNotice message={notice} />

@@ -120,7 +120,7 @@ function SharedBrief({ workspaceId, handoffId }: { workspaceId: string; handoffI
             </Button>
           ) : null}
           <Field label="Or hand it back (reason required)">
-            <input className={inputClass} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} />
+            <input className={inputClass} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="e.g. Outside our service area" />
           </Field>
           <Button disabled={busy || !returnReason.trim()} onClick={() => void move("returned")}>
             Return to sender

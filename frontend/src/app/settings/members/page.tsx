@@ -72,10 +72,10 @@ function Members({ workspaceId }: { workspaceId: string }) {
           <h2 className="text-[15px]">Add a member</h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-3">
             <Field label="Email">
-              <input type="email" required className={inputClass} value={email} onChange={(e) => setEmail(e.target.value)} />
+              <input type="email" required className={inputClass} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="e.g. sara@yourcompany.com" />
             </Field>
             <Field label="Name (optional)">
-              <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
+              <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Sara Khan" />
             </Field>
             <Field label="Role">
               <select className={inputClass} value={role} onChange={(e) => setRole(e.target.value)}>

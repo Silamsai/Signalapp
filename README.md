@@ -2,6 +2,8 @@
 
 SignalApp helps infrastructure sales teams find accounts showing buying signals, build an evidence-backed qualification brief, get it accepted by sales, and follow through with SDR tasks and partner handoffs. This is **Phase 1** of the Infrastructure Signal specification. SignalApp never sends emails or makes calls.
 
+**New to the project? Start with [docs/README.md](docs/README.md).**
+
 ## Roles
 
 | Role | What they see |
