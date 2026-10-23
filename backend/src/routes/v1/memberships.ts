@@ -41,6 +41,7 @@ export async function membershipRoutes(app: FastifyInstance) {
           email: z.string().email(),
           name: z.string().optional(),
           role: roleSchema,
+          password: z.string().min(8, "Password must be at least 8 characters").max(200).optional(),
         })
         .parse(req.body);
       const result = await grantMembership({
@@ -49,6 +50,7 @@ export async function membershipRoutes(app: FastifyInstance) {
         email: body.email,
         name: body.name,
         role: body.role,
+        password: body.password,
         actorUserId: req.actor!.userId,
       });
       return result;
@@ -85,10 +87,14 @@ export async function membershipRoutes(app: FastifyInstance) {
       };
       const m = await loadMembership(req, workspaceId);
       requireCap(m, "manage_membership");
+      const body = z
+        .object({ newPassword: z.string().min(8, "Password must be at least 8 characters").max(200) })
+        .parse(req.body);
       return resetMemberPassword({
         tenantId: m.tenantId,
         workspaceId,
         membershipId,
+        newPassword: body.newPassword,
         actorUserId: req.actor!.userId,
       });
     },

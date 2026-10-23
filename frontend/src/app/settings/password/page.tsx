@@ -6,7 +6,8 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { changePassword } from "@/lib/auth/session";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Field, FormError, FormNotice, inputClass } from "@/components/ui/Field";
+import { Field, FormError, FormNotice } from "@/components/ui/Field";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -56,33 +57,27 @@ export default function ChangePasswordPage() {
           }}
         >
           <Field label={forced ? "Temporary password" : "Current password"}>
-            <input
-              type="password"
+            <PasswordInput
               autoComplete="current-password"
               required
-              className={inputClass}
               value={current}
               onChange={(e) => setCurrent(e.target.value)}
             />
           </Field>
           <Field label="New password">
-            <input
-              placeholder="At least 12 characters"
-              type="password"
+            <PasswordInput
+              placeholder="At least 8 characters"
               autoComplete="new-password"
               required
-              minLength={12}
-              className={inputClass}
+              minLength={8}
               value={next}
               onChange={(e) => setNext(e.target.value)}
             />
           </Field>
           <Field label="Confirm new password">
-            <input
-              type="password"
+            <PasswordInput
               autoComplete="new-password"
               required
-              className={inputClass}
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               aria-invalid={mismatch}
@@ -91,7 +86,7 @@ export default function ChangePasswordPage() {
           {mismatch ? <FormError message="The new passwords don't match." /> : null}
           <FormError message={error} />
           <FormNotice message={notice} />
-          <Button type="submit" variant="primary" disabled={busy || next.length < 12 || next !== confirm || !current}>
+          <Button type="submit" variant="primary" disabled={busy || next.length < 8 || next !== confirm || !current}>
             {forced ? "Set password and continue" : "Change password"}
           </Button>
         </form>

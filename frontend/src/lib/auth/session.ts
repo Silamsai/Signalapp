@@ -1,7 +1,14 @@
 import { api } from "../api/client";
 import type { Capability } from "./capabilities";
 
-export type User = { id: string; email: string; name: string; mustChangePassword: boolean };
+export type User = {
+  id: string;
+  email: string;
+  name: string;
+  mustChangePassword: boolean;
+  /** App owner: lands on /platform and belongs to no workspace */
+  isPlatformAdmin?: boolean;
+};
 
 export async function changePassword(currentPassword: string, newPassword: string) {
   return api<{ ok: boolean }>("/v1/auth/change-password", {

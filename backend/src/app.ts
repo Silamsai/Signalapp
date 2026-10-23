@@ -24,7 +24,13 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
 
   app.setErrorHandler(errorHandler);
   await app.register(cors, {
-    origin: env.FRONTEND_ORIGIN,
+    // FRONTEND_ORIGIN may list several origins, comma-separated. Outside production any
+    // localhost port is also allowed, since Next picks 3001+ when 3000 is busy.
+    origin: (origin, cb) => {
+      const allowed = env.FRONTEND_ORIGIN.split(",").map((o) => o.trim());
+      const localDev = env.NODE_ENV !== "production" && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin ?? "");
+      cb(null, !origin || allowed.includes(origin) || localDev ? (origin ?? true) : false);
+    },
     credentials: true,
     // The plugin's default omits PUT/PATCH/DELETE, which browsers then block on preflight
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

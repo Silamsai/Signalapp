@@ -79,6 +79,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (pick) {
         writeStored(pick.id);
         setError(null);
+      } else if (u.isPlatformAdmin) {
+        // The platform admin belongs to no workspace by design; PortalLayout sends them to /platform
+        setError(null);
       } else {
         setError("You don't have access to any workspace. Ask a workspace admin to add you.");
       }

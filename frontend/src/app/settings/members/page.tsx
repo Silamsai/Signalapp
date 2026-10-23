@@ -15,6 +15,7 @@ import { ROLE_DESCRIPTIONS, ROLE_LABELS } from "@/lib/auth/capabilities";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field, FormError, inputClass } from "@/components/ui/Field";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 
 const ROLES = ["tenant_admin", "researcher", "sdr", "sales_reviewer", "partner", "analyst"] as const;
 
@@ -24,11 +25,13 @@ function Members({ workspaceId }: { workspaceId: string }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<string>("researcher");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tempPassword, setTempPassword] = useState<{ email: string; password: string } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState<string | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -55,12 +58,17 @@ function Members({ workspaceId }: { workspaceId: string }) {
             e.preventDefault();
             setBusy(true);
             setError(null);
-            setTempPassword(null);
+            setNotice(null);
             try {
-              const res = await grantMembership(workspaceId, { email, name: name || undefined, role });
-              if (res.temporaryPassword) setTempPassword({ email, password: res.temporaryPassword });
+              const res = await grantMembership(workspaceId, { email, name: name || undefined, role, password: password || undefined });
+              setNotice(
+                res.existingAccount
+                  ? `${email} already had a SignalApp account, so they keep their own password and can sign in now.`
+                  : `${email} can sign in now with the password you set. They can change it under Settings → Password.`,
+              );
               setEmail("");
               setName("");
+              setPassword("");
               await refresh();
             } catch (err) {
               setError(err instanceof Error ? err.message : "Grant failed");
@@ -70,12 +78,22 @@ function Members({ workspaceId }: { workspaceId: string }) {
           }}
         >
           <h2 className="text-[15px]">Add a member</h2>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Email">
               <input type="email" required className={inputClass} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="e.g. sara@yourcompany.com" />
             </Field>
             <Field label="Name (optional)">
               <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Sara Khan" />
+            </Field>
+            <Field label="Password" hint="At least 8 characters. Not needed if they already have an account.">
+              <PasswordInput
+                id="member-password"
+                autoComplete="new-password"
+                minLength={8}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Set their password"
+              />
             </Field>
             <Field label="Role">
               <select className={inputClass} value={role} onChange={(e) => setRole(e.target.value)}>
@@ -91,10 +109,9 @@ function Members({ workspaceId }: { workspaceId: string }) {
           <Button type="submit" variant="primary" className="mt-3" disabled={busy || !email}>
             Grant access
           </Button>
-          {tempPassword ? (
+          {notice ? (
             <p role="status" className="mt-3 rounded-[7px] bg-[var(--chip-bg)] p-3 text-sm">
-              Temporary password for {tempPassword.email}: <code>{tempPassword.password}</code> — share it securely; it is shown
-              only once. They&apos;ll be asked to choose their own password when they sign in.
+              {notice}
             </p>
           ) : null}
           <FormError message={error} />
@@ -140,16 +157,26 @@ function Members({ workspaceId }: { workspaceId: string }) {
                     </Button>
                   </div>
                 ) : confirmReset === m.id ? (
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <PasswordInput
+                      id={`reset-password-${m.id}`}
+                      autoComplete="new-password"
+                      aria-label={`New password for ${m.email}`} wrapperClassName="w-56"
+                      value={resetPassword}
+                      onChange={(e) => setResetPassword(e.target.value)}
+                      placeholder="New password (8+ characters)"
+                    />
                     <Button
                       variant="primary"
-                      disabled={busy}
+                      disabled={busy || resetPassword.length < 8}
                       onClick={async () => {
                         setBusy(true);
                         setError(null);
+                        setNotice(null);
                         try {
-                          const res = await resetMemberPassword(workspaceId, m.id);
-                          setTempPassword({ email: m.email, password: res.temporaryPassword });
+                          await resetMemberPassword(workspaceId, m.id, resetPassword);
+                          setNotice(`New password set for ${m.email}. They were signed out and can sign in with it now.`);
+                          setResetPassword("");
                           setConfirmReset(null);
                         } catch (err) {
                           setError(err instanceof Error ? err.message : "Reset failed");
@@ -158,9 +185,15 @@ function Members({ workspaceId }: { workspaceId: string }) {
                         }
                       }}
                     >
-                      Confirm reset
+                      Set password
                     </Button>
-                    <Button variant="ghost" onClick={() => setConfirmReset(null)}>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setConfirmReset(null);
+                        setResetPassword("");
+                      }}
+                    >
                       Cancel
                     </Button>
                   </div>

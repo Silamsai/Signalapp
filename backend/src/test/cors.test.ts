@@ -23,4 +23,18 @@ describe("CORS preflight", () => {
     }
     await app.close();
   });
+
+  it("allows another localhost port in development but never a foreign site", async () => {
+    const { buildApp } = await import("../app.js");
+    const app = await buildApp({ logger: false });
+    const preflight = (origin: string) =>
+      app.inject({
+        method: "OPTIONS",
+        url: "/v1/auth/login",
+        headers: { origin, "access-control-request-method": "POST", "access-control-request-headers": "content-type" },
+      });
+    expect((await preflight("http://localhost:3001")).headers["access-control-allow-origin"]).toBe("http://localhost:3001");
+    expect((await preflight("https://evil.example")).headers["access-control-allow-origin"]).toBeUndefined();
+    await app.close();
+  });
 });

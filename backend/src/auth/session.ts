@@ -67,6 +67,7 @@ export async function resolveSession(token: string | undefined) {
       email: users.email,
       name: users.name,
       mustChangePassword: users.mustChangePassword,
+      isPlatformAdmin: users.isPlatformAdmin,
       expiresAt: sessions.expiresAt,
     })
     .from(sessions)
@@ -84,6 +85,7 @@ export type Actor = {
   email: string;
   name: string;
   mustChangePassword: boolean;
+  isPlatformAdmin: boolean;
   expiresAt: Date;
 };
 

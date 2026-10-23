@@ -117,8 +117,12 @@ export async function transitionAcceptance(input: {
     if (!hasCapability(input.role, "submit_review")) {
       throw forbidden("Cannot submit for review");
     }
-    if (!qual?.rationale?.trim() || currentFacts.length === 0) {
-      throw validationError("Submitting requires a qualification brief and rationale");
+    const missing = [
+      ...(qual?.rationale?.trim() ? [] : ["a saved qualification rationale"]),
+      ...(currentFacts.length ? [] : ["at least one saved fact"]),
+    ];
+    if (missing.length) {
+      throw validationError(`Can't submit yet — add ${missing.join(" and ")} on the Qualification page`);
     }
   } else if (fromState === "ready_for_review" && input.toState === "accepted") {
     if (!hasCapability(input.role, "accept")) throw forbidden("Only a sales reviewer can accept");
