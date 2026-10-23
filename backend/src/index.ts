@@ -4,7 +4,7 @@ import { buildApp } from "./app.js";
 async function main() {
   const env = getEnv();
   const app = await buildApp();
-  await app.listen({ port: env.PORT, host: "0.0.0.0" });
+  await app.listen({ port: env.PORT, host: "::" });
   console.log(`Signal API listening on :${env.PORT}`);
   console.log(`Exa configured: ${Boolean(env.EXA_API_KEY?.trim())}`);
 }
